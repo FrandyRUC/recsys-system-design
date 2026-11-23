@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Recommendation System Design</title>
+<style>
+:root {
+  /* Layout idea: fixed 1280x720 slide canvas scaled to fit; a blueprint-style engineering deck with one cobalt accent and amber "From production" callouts. */
+  --bg: #e9ecf1;
+  --paper: #fbfcfd;
+  --ink: #141b2b;
+  --muted: #5a6478;
+  --line: #d4d9e2;
+  --accent: #2348c7;
+  --accent-soft: #e7ecfb;
+  --prod: #b86b00;
+  --prod-soft: #fff4e2;
+  --good: #1f7a4d;
+  --bad: #b3261e;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#viewport { flex: 1; position: relative; min-height: 0; }
+#stage {
+  position: absolute; left: 50%; top: 50%;
+  width: 1280px; height: 720px;
+  transform-origin: center center;
+}
+.slide {
+  position: absolute; inset: 0;
+  background: var(--paper);
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(20,27,43,.06), 0 12px 40px rgba(20,27,43,.10);
+  padding: 46px 64px 40px;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+.slide.active { display: flex; }
+.slide::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--accent);
+}
+.slide-num {
+  position: absolute; right: 28px; bottom: 18px;
+  font-family: var(--font-mono); font-size: 13px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.footer-tag {
+  position: absolute; left: 64px; bottom: 18px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted); letter-spacing: .04em;
+}
+.eyebrow {
+  font-family: var(--font-mono); font-size: 13px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 6px;
+}
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h2 { font-size: 36px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 22px; }
+h2 .sep { color: var(--accent); font-weight: 500; padding: 0 6px; }
+h3 { font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+p { margin: 0; }
+ul { margin: 0; padding-left: 20px; }
+li { margin: 4px 0; line-height: 1.38; }
+b, strong { font-weight: 600; }
+.body { font-size: 18px; line-height: 1.45; }
+.small { font-size: 15px; line-height: 1.4; }
+.xs { font-size: 13.5px; line-height: 1.4; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.grid { display: grid; gap: 22px; }
+.g2 { grid-template-columns: 1fr 1fr; }
+.g3 { grid-template-columns: repeat(3, 1fr); }
+.g4 { grid-template-columns: repeat(4, 1fr); }
+.flex1 { flex: 1; min-height: 0; }
+.card {
+  border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; background: #fff;
+}
+.card.tint { background: var(--accent-soft); border-color: #cdd6f5; }
+.tag {
+  display: inline-block; font-family: var(--font-mono); font-size: 12px; padding: 2px 8px; border-radius: 99px;
+  background: var(--accent-soft); color: var(--accent); margin-bottom: 8px; letter-spacing: .02em;
+}
+.prod {
+  border: 1px solid #f0d3a3; border-left: 4px solid var(--prod); background: var(--prod-soft);
+  border-radius: 6px; padding: 10px 14px; font-size: 15px; line-height: 1.4;
+}
+.prod .lbl {
+  font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--prod); font-weight: 500; display: block; margin-bottom: 3px;
+}
+.tip {
+  border-left: 4px solid var(--accent); padding: 8px 14px; font-size: 15px; line-height: 1.4; background: var(--accent-soft); border-radius: 0 6px 6px 0;
+}
+.tip .lbl { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-right: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 16px; }
+th {
+  text-align: left; font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 2px solid var(--ink); padding: 8px 10px;
+}
+td { border-bottom: 1px solid var(--line); padding: 10px 10px; vertical-align: top; line-height: 1.35; }
+tr.hl td { background: var(--accent-soft); }
+.v { font-family: var(--font-mono); font-weight: 500; white-space: nowrap; }
+.v.good { color: var(--good); }
+.v.bad { color: var(--bad); }
+code, .code {
+  font-family: var(--font-mono); font-size: 15px; background: #f1f3f7; border: 1px solid var(--line); border-radius: 6px;
+}
+.code { display: block; padding: 10px 14px; line-height: 1.55; white-space: pre; }
+code { padding: 1px 5px; font-size: 14px; }
+
+/* Flow diagrams */
+.flow { display: flex; align-items: stretch; gap: 0; }
+.flow .box {
+  flex: 1; border: 1.5px solid var(--ink); border-radius: 8px; padding: 12px 14px; background: #fff; min-width: 0;
+}
+.flow .box.acc { border-color: var(--accent); background: var(--accent-soft); }
+.flow .arrow {
+  flex: 0 0 34px; display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--accent); font-family: var(--font-mono);
+}
+.box .t { font-family: var(--font-display); font-weight: 700; font-size: 17px; margin-bottom: 4px; }
+.box .n { font-family: var(--font-mono); font-size: 13px; color: var(--accent); margin-bottom: 6px; }
+
+/* Funnel */
+.funnel { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.fstage {
+  display: grid; grid-template-columns: 210px 1fr 150px; align-items: center; gap: 18px;
+  border: 1.5px solid var(--ink); border-radius: 8px; padding: 12px 18px; background: #fff;
+}
+.fstage .name { font-family: var(--font-display); font-weight: 700; font-size: 18px; }
+.fstage .cnt { font-family: var(--font-mono); font-size: 18px; text-align: right; color: var(--accent); font-variant-numeric: tabular-nums; }
+.fstage .desc { font-size: 15px; line-height: 1.35; color: var(--ink); }
+.fstage .desc em { font-style: normal; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); display: block; }
+
+/* Title slide */
+.title-slide { justify-content: space-between; padding: 64px 80px 48px; }
+.title-slide::before { width: 100%; height: 6px; bottom: auto; }
+.title-slide h1 { font-size: 66px; font-weight: 800; letter-spacing: -.02em; line-height: 1.02; margin: 10px 0 18px; }
+.title-slide .sub { font-size: 24px; color: var(--muted); }
+.title-slide .meta { font-family: var(--font-mono); font-size: 15px; color: var(--muted); }
+.agenda { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.agenda a {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 14px; align-items: center;
+  border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 6px; padding: 12px 16px; background: #fff;
+  color: var(--ink); text-decoration: none;
+}
+.agenda a:hover { background: var(--accent-soft); }
+.agenda a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agenda a i { grid-row: 1 / span 2; font-style: normal; font-family: var(--font-mono); font-size: 28px; color: var(--accent); font-weight: 500; }
+.agenda a b { font-family: var(--font-display); font-size: 20px; font-weight: 700; line-height: 1.15; }
+.agenda a small { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+
+/* Bars (latency budget) */
+.bars { display: flex; flex-direction: column; gap: 7px; }
+.bar { display: grid; grid-template-columns: 150px 1fr 58px; gap: 10px; align-items: center; font-size: 14.5px; }
+.bar .track { height: 16px; background: #eef1f6; border-radius: 3px; position: relative; }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 3px; }
+.bar .ms { font-family: var(--font-mono); font-size: 13.5px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.qcard { border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px; background: #fff; display: flex; flex-direction: column; gap: 7px; }
+.qcard .q { font-family: var(--font-display); font-weight: 600; font-size: 16.5px; line-height: 1.28; }
+.qcard .q .qn { font-family: var(--font-mono); color: var(--accent); font-weight: 500; margin-right: 6px; }
+.qcard .h { font-size: 13.5px; color: var(--muted); line-height: 1.38; border-top: 1px dashed var(--line); padding-top: 6px; }
+
+.lvl h3 { display: flex; align-items: baseline; gap: 8px; }
+.lvl h3 .mono { font-size: 12px; color: var(--accent); font-weight: 400; }
+
+/* Notes panel + controls */
+aside.notes { display: none; }
+#notes {
+  display: none; height: 32vh; min-height: 160px; background: #141b2b; color: #e6e9f0;
+  padding: 16px 28px 18px; overflow-y: auto; border-top: 3px solid var(--accent);
+}
+body.show-notes #notes { display: block; }
+#notes h4 { margin: 0 0 8px; font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #9fb2f0; font-weight: 500; }
+#notes p { font-size: 16px; line-height: 1.6; margin: 0 0 10px; max-width: 110ch; }
+#notes .im { border-left: 3px solid #f0b356; padding-left: 12px; color: #fbe6c3; }
+#notes .im b { color: #f0b356; font-family: var(--font-mono); font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; margin-right: 6px; }
+#controls {
+  position: fixed; right: 14px; bottom: 14px; display: flex; gap: 6px; z-index: 5;
+}
+body.show-notes #controls { bottom: calc(32vh + 14px); }
+#controls button {
+  font-family: var(--font-mono); font-size: 13px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  border-radius: 6px; padding: 7px 11px; cursor: pointer;
+}
+#controls button:hover { border-color: var(--accent); color: var(--accent); }
+#controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#progress { position: fixed; left: 0; top: 0; height: 3px; background: var(--accent); transition: width .2s; z-index: 6; }
+@media (prefers-reduced-motion: reduce) { #progress { transition: none; } }
+
+/* ===== Bold layered theme (architecture-driven) ===== */
+:root {
+  --on: #185FA5; --on-soft: #E6F1FB;
+  --st: #444441; --st-soft: #F1EFE8;
+  --nl: #534AB7; --nl-soft: #EEEDFE;
+  --off: #0F6E56; --off-soft: #E3F4EE;
+  --cl: #C2502A; --cl-soft: #FCEEE8;
+  --accent: #185FA5; --accent-soft: #E6F1FB;
+  --bg: #e6e9ee; --paper: #ffffff;
+}
+.slide { --lc: var(--ink); --ls: #eef1f6; }
+.slide[data-layer="online"] { --lc: var(--on); --ls: var(--on-soft); }
+.slide[data-layer="offline"] { --lc: var(--off); --ls: var(--off-soft); }
+.slide[data-layer="nearline"] { --lc: var(--nl); --ls: var(--nl-soft); }
+.slide[data-layer="storage"] { --lc: var(--st); --ls: var(--st-soft); }
+.slide[data-layer="client"] { --lc: var(--cl); --ls: var(--cl-soft); }
+.slide::before { display: none; }
+.eyebrow {
+  align-self: flex-start; width: fit-content; background: var(--lc); color: #fff; padding: 4px 10px; border-radius: 4px;
+  font-size: 12.5px; font-weight: 500; margin-bottom: 12px;
+}
+h2 { font-size: 38px; font-weight: 800; letter-spacing: -.015em; }
+h2 .sep { color: var(--lc); font-weight: 600; }
+h3 { color: var(--ink); }
+.card.tint { background: var(--ls); border-color: transparent; }
+.tag { background: var(--lc); color: #fff; font-weight: 500; border-radius: 4px; }
+.tip { border-left: none; border-radius: 8px; background: var(--ls); padding: 10px 14px; }
+.tip .lbl { background: var(--lc); color: #fff; padding: 2px 8px; border-radius: 4px; margin-right: 8px; }
+.prod { border: none; border-radius: 8px; background: #fff3df; }
+.prod .lbl { display: inline-block; background: #a85f00; color: #fff; padding: 2px 8px; border-radius: 4px; margin-bottom: 5px; }
+th { border-bottom-color: var(--lc); }
+tr.hl td { background: var(--ls); }
+.v.good { color: var(--on); }
+.flow .box { background: var(--lc); border: none; color: #fff; }
+.flow .box.acc { background: var(--ink); }
+.flow .box .t { color: #fff; }
+.flow .box .small, .flow .box .xs, .flow .box .mono, .flow .box li { color: rgba(255,255,255,.88); }
+.flow .box .n { color: #fff; opacity: .75; }
+.flow .box b { color: #fff; }
+.flow .arrow { color: var(--lc); font-weight: 600; }
+.bar .fill { background: var(--lc); }
+.qcard .q .qn { color: var(--lc); }
+.agenda a i { color: inherit; }
+
+/* Funnel as solid bars */
+.fstage { border: none; color: #fff; border-radius: 8px; padding: 13px 20px; }
+.fstage .name, .fstage .desc, .fstage .cnt { color: #fff; }
+.fstage .desc em { color: rgba(255,255,255,.72); }
+.fstage:nth-child(1) { background: #444441; }
+.fstage:nth-child(2) { background: #0E4B85; }
+.fstage:nth-child(3) { background: #185FA5; }
+.fstage:nth-child(4) { background: #1F68AA; }
+.fstage:nth-child(5) { background: #2A72B5; }
+
+/* Locator: where this slide sits on the architecture */
+.loc { position: absolute; top: 46px; right: 64px; display: flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.loc small { color: var(--muted); font-size: 11px; margin-right: 4px; letter-spacing: .06em; }
+.loc span { padding: 4px 8px; border-radius: 4px; background: #eef0f4; color: #a3a9b5; }
+.loc span.online.hit { background: var(--on); color: #fff; }
+.loc span.storage.hit { background: var(--st); color: #fff; }
+.loc span.nearline.hit { background: var(--nl); color: #fff; }
+.loc span.offline.hit { background: var(--off); color: #fff; }
+
+/* Title slide: dark, bold */
+.title-slide { background: #121a29; color: #fff; }
+.title-slide .eyebrow { background: var(--on); }
+.title-slide h1 { color: #fff; }
+.title-slide .sub { color: #c3cad8; }
+.title-slide .meta { color: #8f99ad; }
+.agenda a { border: none; border-radius: 8px; color: #fff; background: #2a3346; }
+.agenda a:hover { background: #2a3346; filter: brightness(1.15); }
+.agenda a small { color: rgba(255,255,255,.75); }
+.agenda a.k-arch { background: var(--cl); }
+.agenda a.k-on { background: var(--on); }
+.agenda a.k-off { background: var(--off); }
+.agenda a.k-nl { background: var(--nl); }
+.agenda a.k-st { background: #5F5E5A; }
+.agenda a.k-model { background: #0C447C; }
+
+/* ===== System architecture slide ===== */
+.arch { display: grid; grid-template-columns: 128px 1fr 46px; grid-template-rows: auto 30px auto 30px auto 12px auto; column-gap: 10px; align-content: center; }
+.a-band { border-radius: 10px; padding: 8px 12px 11px; }
+.a-online { background: var(--on-soft); } .a-store { background: var(--st-soft); }
+.a-near { background: var(--nl-soft); } .a-off { background: var(--off-soft); } .a-client { background: var(--cl-soft); }
+.a-lbl { font-family: var(--font-display); font-size: 15px; font-weight: 800; margin-bottom: 7px; }
+.a-lbl i { font-style: normal; font-family: var(--font-body); font-weight: 400; font-size: 13px; margin-left: 4px; }
+.a-online .a-lbl { color: #0C447C; } .a-store .a-lbl { color: #2C2C2A; } .a-near .a-lbl { color: #3C3489; } .a-off .a-lbl { color: #085041; }
+.a-client-lbl { color: #993C1D; padding: 9px 12px 0; z-index: 1; align-self: start; }
+.a-flow { display: flex; align-items: stretch; }
+.a-flow em { flex: 0 0 22px; position: relative; }
+.a-flow em::before { content: ""; position: absolute; left: 3px; right: 7px; top: 50%; border-top: 2px solid #8a8984; }
+.a-flow em::after { content: ""; position: absolute; right: 2px; top: calc(50% - 5px); border-left: 7px solid #8a8984; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.a-flow em:first-child { margin-left: -12px; }
+.a-node { flex: 1; min-width: 0; border-radius: 7px; padding: 9px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; color: #fff; text-decoration: none; transition: filter .15s; }
+a.a-node:hover { filter: brightness(1.15); }
+a.a-node:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.a-node b { font-family: var(--font-display); font-weight: 800; font-size: 15.5px; line-height: 1.15; }
+.a-node span { font-size: 12px; color: rgba(255,255,255,.85); line-height: 1.3; margin-top: 3px; }
+.a-online .a-node { background: var(--on); } .a-store .a-node { background: var(--st); }
+.a-near .a-node { background: var(--nl); } .a-off .a-node { background: var(--off); }
+.a-db { border-radius: 50% / 16px; padding-top: 14px; padding-bottom: 12px; }
+.a-dbs { gap: 34px; padding: 0 30px; }
+.a-cnode { background: var(--cl); z-index: 1; margin: 34px 10px 12px; padding: 10px 6px; }
+.a-logs { margin-top: 8px; }
+.a-down { z-index: 1; display: flex; align-items: center; justify-content: center; position: relative; }
+.a-down::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 8px; border-left: 2px solid #8a8984; }
+.a-down::after { content: ""; position: absolute; left: calc(50% - 5px); bottom: 0; border-top: 8px solid #8a8984; border-left: 6px solid transparent; border-right: 6px solid transparent; }
+.a-down span { position: relative; background: var(--cl-soft); font-size: 12px; color: #993C1D; text-align: center; padding: 4px 0; line-height: 1.3; }
+.a-up { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.a-up i { width: 26px; height: 32px; background: #b4b2a9; clip-path: polygon(50% 0, 100% 45%, 70% 45%, 70% 100%, 30% 100%, 30% 45%, 0 45%); }
+.a-side { position: relative; display: flex; align-items: center; justify-content: center; background: #A8DCC8; clip-path: polygon(50% 0, 100% 34px, 82% 34px, 82% 100%, 18% 100%, 18% 34px, 0 34px); }
+.a-side span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; color: #085041; font-weight: 500; padding-top: 24px; }
+
+.agenda-big { grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: 16px; align-content: stretch; }
+.agenda-big a { display: flex; flex-direction: column; justify-content: flex-start; padding: 18px 20px; gap: 4px; }
+.agenda-big a i { font-size: 34px; font-weight: 500; line-height: 1; margin-bottom: 10px; opacity: .9; }
+.agenda-big a b { font-size: 26px; }
+.agenda-big a small { font-size: 12.5px; }
+.agenda-big a p { font-size: 15px; line-height: 1.4; color: rgba(255,255,255,.88); margin-top: auto; }
+.agenda-big a { align-items: flex-start; text-align: left; }
+.title-slide > div:first-child { margin-top: auto; }
+.title-slide > div:nth-child(2) { margin-top: auto; }
+.title-slide h1 { font-size: 78px; }
+.title-slide .sub { font-size: 26px; }
+.title-slide { justify-content: center; }
+.title-slide > div:first-child { margin-top: 0; }
+.title-slide h1 { font-size: 72px; white-space: nowrap; }
+.title-slide .byline { display: flex; align-items: center; gap: 14px; margin-top: 64px; font-size: 22px; color: #c3cad8; }
+.title-slide .byline b { color: #fff; font-family: var(--font-display); font-weight: 700; }
+.title-slide .byline span { font-family: var(--font-mono); font-size: 17px; color: #8f99ad; padding-left: 14px; border-left: 1px solid #3a465d; }
+.title-slide .eyebrow { margin-bottom: 26px; }
+.title-slide h1 { margin: 0 0 28px; line-height: 1.05; }
+.title-slide { justify-content: space-between; padding: 72px 88px 68px; }
+.title-slide > div:first-child, .title-slide > div:nth-child(2) { margin-top: 0; }
+.title-slide .eyebrow { margin-bottom: 0; font-size: 14px; padding: 6px 12px; }
+.title-slide h1 { font-size: 70px; margin: 0 0 30px; }
+.title-slide .sub { font-size: 28px; }
+.title-slide .byline { margin-top: 0; font-size: 24px; }
+.title-slide .byline span { font-size: 18px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.stats div { background: var(--ink); color: #fff; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.stats b { font-family: var(--font-display); font-size: 26px; font-weight: 800; line-height: 1.1; }
+.stats span { font-size: 13px; color: rgba(255,255,255,.75); }
+.ladder { display: flex; flex-direction: column; gap: 10px; }
+.ladder div { flex: 1; display: flex; align-items: center; gap: 14px; border: 1.5px solid var(--line); border-radius: 8px; padding: 14px 16px; background: #fff; }
+.ladder i { font-style: normal; font-family: var(--font-mono); font-size: 14px; color: var(--muted); width: 26px; height: 26px; border-radius: 50%; background: #eef0f4; display: flex; align-items: center; justify-content: center; flex: none; }
+.ladder b { font-family: var(--font-display); font-size: 19px; font-weight: 700; flex: 1; }
+.ladder span { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 9px; border-radius: 4px; }
+.ladder .pick { background: var(--on); border-color: var(--on); color: #fff; }
+.ladder .pick i { background: rgba(255,255,255,.2); color: #fff; }
+.ladder .pick span { background: #fff; color: var(--on); }
+.ladder .guard { border-color: var(--on); }
+.ladder .guard span { background: var(--on-soft); color: var(--on); }
+/* Section dividers */
+.slide.divider { background: var(--lc); color: #fff; flex-direction: row; align-items: center; gap: 56px; padding: 64px 72px 64px 84px; }
+.divider .dv-left { flex: 1; min-width: 0; }
+.divider .dv-num { font-family: var(--font-mono); font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.75); margin-bottom: 10px; }
+.divider .dv-title { font-size: 92px; font-weight: 800; letter-spacing: -.02em; line-height: 1; margin: 0 0 16px; color: #fff; }
+.divider .dv-sub { font-size: 24px; color: rgba(255,255,255,.88); margin-bottom: 34px; }
+.divider .dv-list { list-style: none; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+.divider .dv-list li { margin: 0; font-size: 17px; padding-left: 16px; position: relative; color: #fff; }
+.divider .dv-list li::before { content: ""; position: absolute; left: 0; top: .55em; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.7); }
+.divider .dv-right { flex: 0 0 470px; }
+.divider .slide-num { color: rgba(255,255,255,.6); }
+.mm { background: #fff; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.mm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px 12px; border-radius: 10px; background: #f1f3f6; opacity: .5; }
+.mm-row b { width: 100%; font-family: var(--font-display); font-size: 14px; font-weight: 800; color: #6b7385; margin-bottom: 2px; }
+.mm-row span { font-size: 12px; padding: 6px 9px; border-radius: 5px; background: #bfc5d0; color: #fff; }
+.mm-row.hit { opacity: 1; }
+.mm-online.hit { background: var(--on-soft); } .mm-online.hit b { color: var(--on); } .mm-online.hit span { background: var(--on); }
+.mm-storage.hit { background: var(--st-soft); } .mm-storage.hit b { color: var(--st); } .mm-storage.hit span { background: var(--st); }
+.mm-nearline.hit { background: var(--nl-soft); } .mm-nearline.hit b { color: var(--nl); } .mm-nearline.hit span { background: var(--nl); }
+.mm-offline.hit { background: var(--off-soft); } .mm-offline.hit b { color: var(--off); } .mm-offline.hit span { background: var(--off); }
+/* rollout steps */
+.steps div { display: flex; gap: 14px; align-items: baseline; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 15px; }
+.steps div:last-child { border-bottom: 0; }
+.steps b { flex: 0 0 140px; font-family: var(--font-display); }
+.steps span { color: var(--muted); }
+/* Row strip: where this slide sits on the map */
+.strip { position: absolute; top: 44px; right: 64px; display: flex; align-items: center; gap: 4px; }
+.strip span { font-size: 12px; font-weight: 500; padding: 4px 9px; border-radius: 5px; border: 1.5px solid var(--lc); color: var(--lc); background: #fff; white-space: nowrap; opacity: .55; }
+.strip span.cur { background: var(--lc); color: #fff; opacity: 1; }
+.strip i { width: 12px; height: 0; border-top: 1.5px solid #b4b2a9; position: relative; }
+.strip i::after { content: ""; position: absolute; right: -1px; top: -4.5px; border-left: 5px solid #b4b2a9; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; }
+.pill { display: inline-block; font-size: 12px; font-weight: 500; padding: 2px 7px; border-radius: 4px; color: #fff; margin: 1px 2px 1px 0; }
+.pill.on { background: var(--on); } .pill.off { background: var(--off); } .pill.nl { background: var(--nl); }
+.fstage.fs-corpus { background: #042C53; }
+.fstage .cnt { white-space: nowrap; font-size: 16px; }
+
+/* Retrieval multi-source diagram */
+.rt { display: grid; grid-template-columns: 130px 44px 300px 96px 1fr 40px 150px; align-items: center; margin-top: 18px; }
+.rt-pool { height: 200px; border-radius: 50% / 22px; background: var(--on-soft); border: 1.5px solid #A9CBEF; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 8px 8px; }
+.rt-pool b { font-family: var(--font-display); font-size: 18px; font-weight: 800; color: #0C447C; line-height: 1.15; }
+.rt-pool span { font-family: var(--font-mono); font-size: 13px; color: var(--on); margin-top: 6px; }
+.rt-fan, .rt-arr { width: 100%; height: 290px; display: block; }
+.rt-src { display: flex; flex-direction: column; gap: 10px; }
+.rt-src div { height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 8px; background: #fff; border: 1.5px solid var(--line); }
+.rt-src b { font-family: var(--font-display); font-size: 17px; font-weight: 700; }
+.rt-src span { font-size: 14px; color: var(--muted); }
+.rt-src div.hl { background: var(--on-soft); border-color: var(--on); }
+.rt-mgr { height: 300px; background: var(--ink); color: #fff; border-radius: 10px; padding: 18px 18px 14px; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.rt-mt { font-family: var(--font-display); font-size: 19px; font-weight: 800; margin-bottom: 2px; }
+.rt-mgr div { background: #fff; color: var(--ink); border-radius: 6px; padding: 11px 12px; font-family: var(--font-display); font-weight: 700; font-size: 15.5px; display: flex; align-items: center; gap: 10px; }
+.rt-mgr i { font-style: normal; font-family: var(--font-mono); font-size: 12px; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--on); color: var(--on); display: flex; align-items: center; justify-content: center; }
+.rt-mgr p { margin-top: 2px; }
+.rt-to { font-family: var(--font-mono); font-size: 12.5px; color: #f2a29a; }
+.rt-arr2 { width: 40px; height: 20px; }
+.rt-out { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.rt-n { background: var(--on); color: #fff; border-radius: 10px; width: 100%; padding: 20px 8px; text-align: center; display: flex; flex-direction: column; }
+.rt-n b { font-family: var(--font-display); font-size: 24px; font-weight: 800; }
+.rt-n span { font-size: 14px; opacity: .85; }
+.rt-out p { font-size: 14px; color: var(--muted); }
+.rt-tt { margin-top: 34px; border: 1.5px solid var(--line); border-radius: 10px; padding: 14px 18px; display: flex; align-items: center; gap: 26px; }
+.rt-tt-h { font-family: var(--font-display); font-weight: 800; font-size: 17px; flex: 0 0 120px; line-height: 1.2; }
+.rt-tt .box { padding: 10px 14px; }
+.rt-kw { flex: 1; }
+
+/* unify dark accents per layer */
+.slide { --ld: var(--ink); }
+.slide[data-layer="online"] { --ld: #042C53; }
+.slide[data-layer="offline"] { --ld: #04342C; }
+.slide[data-layer="nearline"] { --ld: #26215C; }
+.slide[data-layer="storage"] { --ld: #2C2C2A; }
+.flow .box.acc { background: var(--ld); }
+.rt-mgr { background: var(--ld); }
+.rt-pool { background: #2F7BC0; border-color: #2F7BC0; }
+.rt-pool b, .rt-pool span { color: #fff; }
+.rt-to { color: #F7C1C1; }
+.rt-pool { background: var(--on); border-color: var(--on); }
+.rt-mgr { background: var(--on); }
+.rt-tt .flow .box.acc { background: var(--on); }
+
+/* Pre-ranking designs */
+.pr-io { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); margin: -6px 0 14px; }
+.pr-io b { background: var(--on); color: #fff; padding: 3px 10px; border-radius: 5px; font-family: var(--font-display); font-size: 14px; }
+.pr-io em { font-style: normal; color: #8a8984; }
+.pr-axis { position: relative; height: 22px; margin: 0 0 10px; display: flex; justify-content: center; }
+.pr-axis::before { content: ""; position: absolute; left: 0; right: 10px; top: 11px; border-top: 2px solid #b4b2a9; }
+.pr-axis::after { content: ""; position: absolute; right: 0; top: 5px; border-left: 11px solid #b4b2a9; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+.pr-axis span { position: relative; background: var(--paper); padding: 0 12px; font-size: 13px; color: var(--muted); line-height: 22px; }
+.pr { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.pr-col { border: 1.5px solid var(--line); border-radius: 10px; padding: 14px 16px 12px; background: #fff; }
+.pr-col h3 { font-size: 20px; font-weight: 800; color: var(--on); margin-bottom: 12px; }
+.pr-dia { background: var(--on-soft); border-radius: 8px; padding: 20px 14px; display: flex; flex-direction: column; align-items: center; }
+.pr-row { display: flex; gap: 8px; width: 100%; }
+.pr-b { flex: 1; background: var(--on); color: #fff; border-radius: 6px; padding: 12px 4px; text-align: center; font-family: var(--font-display); font-weight: 700; font-size: 14.5px; line-height: 1.15; display: flex; flex-direction: column; justify-content: center; }
+.pr-b small, .pr-out small { font-family: var(--font-body); font-weight: 400; font-size: 11.5px; opacity: .85; }
+.pr-b.x { background: #042C53; }
+.pr-down { width: 2px; height: 22px; background: #8a8984; position: relative; margin: 2px 0 6px; }
+.pr-down::after { content: ""; position: absolute; left: -4px; bottom: -5px; border-top: 6px solid #8a8984; border-left: 5px solid transparent; border-right: 5px solid transparent; }
+.pr-out { background: #fff; border: 1.5px solid var(--on); color: var(--on); border-radius: 6px; padding: 7px 16px; font-family: var(--font-display); font-weight: 700; font-size: 15px; text-align: center; display: flex; flex-direction: column; }
+.pr-kv { display: grid; grid-template-columns: 40px 1fr; gap: 10px 10px; margin: 18px 0 4px; font-size: 15.5px; line-height: 1.35; }
+.pr-kv dt { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding-top: 2px; }
+.pr-kv dd { margin: 0; }
+.pr-svg { display: block; width: 100%; height: auto; }
+.pr-svg .pd-t { font-family: var(--font-display); font-weight: 800; }
+.pr-svg .pd-s { font-family: var(--font-body); font-size: 10.5px; opacity: .85; }
+.pr-dia:has(.pr-svg) { padding: 10px 10px; }
+.pr-col:has(.pr-svg) .pr-kv { margin-top: 12px; gap: 8px 10px; }
+.pr-svg .pd-m { font-family: var(--font-mono); letter-spacing: .04em; }
+.ps-cards .card { padding-bottom: 12px; }
+.ps-cards .pr-dia { padding: 8px 10px; margin-top: 4px; }
+.ps-cap { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.pr-tag { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-left: 6px; vertical-align: 3px; }
+
+/* Ranking model diagram */
+.rk { display: grid; grid-template-columns: 250px 40px 1fr 40px 190px 40px 160px; align-items: center; margin-top: 8px; }
+.rk-feat { display: flex; flex-direction: column; gap: 6px; }
+.rk-feat div { background: var(--on); color: #fff; border-radius: 8px; padding: 6px 12px; display: flex; flex-direction: column; }
+.rk-feat b { font-family: var(--font-display); font-size: 15px; font-weight: 700; line-height: 1.2; }
+.rk-feat span { font-size: 12.5px; opacity: .85; }
+.rk-arr { height: 2px; background: #8a8984; margin: 0 6px 0 4px; position: relative; }
+.rk-arr::after { content: ""; position: absolute; right: -2px; top: -5px; border-left: 8px solid #8a8984; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.rk-model { background: var(--on); color: #fff; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.rk-mt { font-family: var(--font-display); font-size: 18px; font-weight: 800; margin-bottom: 2px; }
+.rk-mt small { font-family: var(--font-body); font-weight: 400; font-size: 13px; opacity: .8; margin-left: 6px; }
+.rk-model div { background: #fff; color: var(--ink); border-radius: 6px; padding: 6px 12px; font-family: var(--font-display); font-weight: 700; font-size: 14.5px; text-align: center; }
+.rk-heads { display: flex; flex-direction: column; gap: 5px; }
+.rk-heads span { background: var(--on-soft); border: 1.5px solid var(--on); color: #0C447C; border-radius: 6px; padding: 4px 10px; text-align: center; font-family: var(--font-display); font-weight: 700; font-size: 14px; }
+.rk-out { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.rk-out p { font-size: 14px; color: var(--muted); }
+.rk-out .rt-n b { font-size: 21px; }
+.rk-sub { font-family: var(--font-display); font-weight: 800; font-size: 16px; margin: 32px 0 10px; }
+.rk-st { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.rk-st div { border: 1.5px solid var(--line); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; background: #fff; }
+.rk-st div.hl { border-color: var(--on); background: var(--on-soft); }
+.rk2 { display: grid; grid-template-columns: 330px 34px 1fr 34px 300px 34px 130px; align-items: center; margin-top: 22px; }
+.rk2-feat { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.rk2-feat div { background: var(--on); color: #fff; border-radius: 7px; padding: 6px 10px; display: flex; flex-direction: column; }
+.rk2-feat b { font-family: var(--font-display); font-size: 14.5px; font-weight: 700; line-height: 1.2; }
+.rk2-feat span { font-size: 11.5px; opacity: .85; }
+.rk2-model { background: #042C53; color: #fff; border-radius: 9px; padding: 14px 12px; text-align: center; display: flex; flex-direction: column; gap: 3px; }
+.rk2-model b { font-family: var(--font-display); font-size: 17px; font-weight: 800; }
+.rk2-model span { font-size: 12px; opacity: .85; }
+.rk2-heads { display: flex; flex-wrap: wrap; gap: 5px; }
+.rk2-heads span { flex: 1 1 30%; background: var(--on-soft); border: 1.5px solid var(--on); color: #0C447C; border-radius: 6px; padding: 4px 6px; text-align: center; font-family: var(--font-display); font-weight: 700; font-size: 13px; white-space: nowrap; }
+.rk2-heads span.w { flex-basis: 60%; }
+.rk2-out { background: var(--on); color: #fff; border-radius: 9px; padding: 12px 8px; text-align: center; display: flex; flex-direction: column; }
+.rk2-out b { font-family: var(--font-display); font-size: 17px; font-weight: 800; }
+.rk2-out span { font-size: 12px; opacity: .85; }
+.mt { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 10px; }
+.mt-c { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 14px 10px; background: #fff; }
+.mt-c.hl { border-color: var(--on); }
+.mt-c h3 { font-size: 18px; font-weight: 800; color: var(--on); margin-bottom: 8px; }
+.mt-c .pr-dia { padding: 8px 10px; }
+.mt-c p { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+.rk-st b { font-family: var(--font-display); font-size: 16.5px; font-weight: 800; color: var(--on); }
+.rk-st span { font-size: 13.5px; color: var(--muted); }
+/* Prediction Server */
+.ps { display: grid; grid-template-columns: 150px 40px 1fr 40px 150px; align-items: center; margin-top: 22px; }
+.ps-eng { border: 1.5px solid var(--on); background: var(--on-soft); border-radius: 10px; padding: 18px 10px; text-align: center; display: flex; flex-direction: column; gap: 4px; }
+.ps-eng b { font-family: var(--font-display); font-size: 16px; font-weight: 800; color: #0C447C; }
+.ps-eng span { font-size: 12.5px; color: var(--muted); }
+.ps-arr { height: 2px; background: #8a8984; margin: 0 6px 0 4px; position: relative; }
+.ps-arr::after { content: ""; position: absolute; right: -2px; top: -5px; border-left: 8px solid #8a8984; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.ps-srv { background: var(--on); color: #fff; border-radius: 10px; padding: 16px 16px 14px; }
+.ps-row { display: flex; align-items: center; margin-top: 10px; }
+.ps-row div { flex: 1; background: #fff; color: var(--ink); border-radius: 6px; padding: 10px 6px; text-align: center; font-family: var(--font-display); font-weight: 700; font-size: 14px; }
+.ps-row i { flex: 0 0 18px; height: 2px; background: rgba(255,255,255,.7); position: relative; }
+.ps-row i::after { content: ""; position: absolute; right: -1px; top: -4px; border-left: 6px solid rgba(255,255,255,.7); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.ps-row2 { display: flex; gap: 18px; margin-top: 6px; }
+.ps-row2 span { flex: 1; text-align: center; font-size: 11.5px; color: rgba(255,255,255,.85); line-height: 1.3; }
+.ps-mm { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.ps-mm div { background: #fff; color: var(--ink); border-radius: 6px; padding: 7px 14px; font-family: var(--font-display); font-weight: 700; font-size: 14px; }
+.ps-mm em { font-style: normal; font-size: 12.5px; color: rgba(255,255,255,.85); }
+.ps-reg { background: var(--st); color: #fff; border-radius: 6px; padding: 7px 14px; font-family: var(--font-display); font-weight: 700; font-size: 14px; }
+
+/* Rerank pipeline */
+.rr { display: flex; align-items: stretch; margin-top: 4px; }
+.rr em { flex: 0 0 22px; position: relative; }
+.rr em::before { content: ""; position: absolute; left: 3px; right: 7px; top: 50%; border-top: 2px solid #8a8984; }
+.rr em::after { content: ""; position: absolute; right: 2px; top: calc(50% - 5px); border-left: 7px solid #8a8984; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.rr-s { flex: 1; min-width: 0; position: relative; border-radius: 8px; padding: 12px 12px 26px; display: flex; flex-direction: column; gap: 3px; background: #fff; border: 1.5px solid var(--line); }
+.rr-s i { font-style: normal; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.rr-s b { font-family: var(--font-display); font-size: 16px; font-weight: 800; line-height: 1.15; }
+.rr-s span { font-size: 12.5px; color: var(--muted); line-height: 1.3; }
+.rr-s u { text-decoration: none; position: absolute; left: 12px; bottom: 8px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; }
+.rr-s.hard { background: var(--on); border-color: var(--on); color: #fff; }
+.rr-s.hard i, .rr-s.hard span { color: rgba(255,255,255,.82); }
+.rr-s.hard u { background: #fff; color: var(--on); }
+.rr-s.soft { background: var(--on-soft); border-color: var(--on); }
+.rr-s.soft u { background: var(--on); color: #fff; }
+.rr-s.ops { background: #fff; border-color: var(--on); }
+.rr-s.ops u { border: 1px solid var(--on); color: var(--on); }
+.rr-pri { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+.rr-pri div { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 6px; font-family: var(--font-display); font-weight: 700; font-size: 15px; background: var(--on-soft); color: #0C447C; }
+.rr-pri div:first-child { background: var(--on); color: #fff; }
+.rr-pri i { font-style: normal; font-family: var(--font-mono); font-size: 12px; width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,.85); color: var(--on); display: flex; align-items: center; justify-content: center; flex: none; }
+.rr-f { font-size: 15px; margin-top: 10px; white-space: nowrap; }
+.rr-dims { display: flex; gap: 8px; margin-top: 10px; }
+.rr-dims span { font-size: 13px; padding: 3px 10px; border-radius: 5px; background: var(--on); color: #fff; font-weight: 500; }
+.rr-kv dt { text-transform: none; font-size: 15px; color: var(--on); font-weight: 500; padding-top: 0; }
+/* Generic diagram kit (slides 11+) */
+.chain { display: flex; align-items: stretch; }
+.chain > em { flex: 0 0 24px; position: relative; }
+.chain > em::before { content: ""; position: absolute; left: 3px; right: 8px; top: 50%; border-top: 2px solid #8a8984; }
+.chain > em::after { content: ""; position: absolute; right: 2px; top: calc(50% - 5px); border-left: 7px solid #8a8984; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.nd { flex: 1; min-width: 0; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; justify-content: center; gap: 2px; background: var(--lc); color: #fff; border: 1.5px solid var(--lc); }
+.nd b { font-family: var(--font-display); font-weight: 800; font-size: 15.5px; line-height: 1.15; }
+.nd span { font-size: 12.5px; opacity: .85; line-height: 1.3; }
+.nd.lt { background: var(--ls); color: var(--ink); }
+.nd.lt span { color: var(--muted); opacity: 1; }
+.nd.wh { background: #fff; color: var(--ink); border-color: var(--line); }
+.nd.wh span { color: var(--muted); opacity: 1; }
+.nd.dk { background: var(--ld); border-color: var(--ld); }
+.nd.c-on { background: var(--on); border-color: var(--on); color: #fff; }
+.nd.c-st { background: var(--st); border-color: var(--st); color: #fff; }
+.nd.c-nl { background: var(--nl); border-color: var(--nl); color: #fff; }
+.nd.c-off { background: var(--off); border-color: var(--off); color: #fff; }
+.nd.c-cl { background: var(--cl); border-color: var(--cl); color: #fff; }
+.nd.c-on span, .nd.c-st span, .nd.c-nl span, .nd.c-off span, .nd.c-cl span { color: #fff; opacity: .85; }
+.col { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.col .nd { flex: none; }
+.lane { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 14px; }
+.lane > p { font-family: var(--font-display); font-weight: 800; font-size: 15px; color: var(--lc); line-height: 1.2; }
+.lane > p small { display: block; font-family: var(--font-body); font-weight: 400; font-size: 12.5px; color: var(--muted); }
+.kws { display: flex; flex-wrap: wrap; gap: 6px; }
+.kws span { font-size: 12.5px; font-weight: 500; padding: 3px 9px; border-radius: 5px; background: var(--lc); color: #fff; }
+.kws.lt span { background: var(--ls); color: var(--ink); border: 1px solid var(--lc); }
+.sub-h { font-family: var(--font-display); font-weight: 800; font-size: 16px; margin: 0 0 10px; }
+.card h3 { margin-bottom: 6px; }
+.case { border-radius: 8px; background: #fff3df; padding: 10px 14px; font-size: 15px; line-height: 1.4; }
+.case .lbl { display: inline-block; background: #a85f00; color: #fff; padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; margin-right: 8px; }
+.cmp { width: 100%; font-size: 14.5px; }
+.cmp td, .cmp th { padding: 7px 10px; }
+.big { font-family: var(--font-display); font-weight: 800; font-size: 26px; color: var(--lc); line-height: 1.1; }
+.lanes5 { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; align-items: center; }
+.lanes5 > p { font-family: var(--font-display); font-weight: 800; font-size: 15px; }
+.lanes5 .chain .nd { padding: 7px 10px; }
+.lanes5 .chain .nd b { font-size: 14px; }
+.nd { padding: 14px 14px; min-height: 60px; }
+.nd b { font-size: 17px; }
+.nd span { font-size: 13.5px; }
+.lanes5 { gap: 12px 16px; }
+.lanes5 .chain .nd { padding: 10px 12px; min-height: 44px; }
+.lanes5 .chain .nd b { font-size: 15px; }
+.sub-h { font-size: 17px; margin-bottom: 12px; }
+.lane { gap: 18px; }
+.cmp { font-size: 15.5px; }
+.cmp td, .cmp th { padding: 9px 12px; }
+
+/* Agenda v2 */
+.ag { display: flex; flex-direction: column; gap: 18px; flex: 1; justify-content: center; }
+.ag a { text-decoration: none; color: inherit; transition: transform .12s, box-shadow .12s; }
+.ag a:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(20,27,43,.10); }
+.ag a:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.ag-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ag-q { display: flex; align-items: baseline; gap: 14px; border: 1.5px solid var(--line); border-radius: 10px; padding: 16px 20px; background: #fff; }
+.ag-q b { font-family: var(--font-display); font-weight: 800; font-size: 21px; }
+.ag-q span { font-size: 15px; color: var(--muted); }
+.ag-h { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 6px 0 -4px; }
+.ag-core { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.ag-core a { border-radius: 12px; padding: 20px 20px 22px; color: #fff; display: flex; flex-direction: column; gap: 8px; min-height: 230px; }
+.ag-core i { font-style: normal; font-size: 26px; line-height: 1; opacity: .9; }
+.ag-core b { font-family: var(--font-display); font-weight: 800; font-size: 28px; line-height: 1.1; }
+.ag-core span { font-size: 14.5px; line-height: 1.45; opacity: .88; margin-top: auto; }
+.ag-core .on { background: var(--on); } .ag-core .off { background: var(--off); } .ag-core .nl { background: var(--nl); } .ag-core .st { background: var(--st); }
+
+/* Frame v2 */
+.fr { display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; flex: 1; min-height: 0; margin-bottom: 34px; }
+.fr-l, .fr-r { display: flex; flex-direction: column; min-height: 0; }
+.fr-h { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+.fr-img { margin: 0; flex: 1; min-height: 0; background: var(--on-soft); border-radius: 12px; padding: 18px 26px; display: flex; }
+.fr-img img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
+.fr-stats { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 18px; }
+.fr-stats div { display: flex; flex-direction: column; padding: 0 14px; border-left: 1.5px solid var(--line); }
+.fr-stats div:first-child { padding-left: 0; border-left: 0; }
+.fr-stats b { font-family: var(--font-display); font-weight: 800; font-size: 32px; color: var(--on); line-height: 1.1; }
+.fr-stats span { font-size: 14px; color: var(--muted); }
+.fr-lad { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.fr-lad div { flex: 1; display: flex; align-items: center; gap: 16px; background: var(--on-soft); border-radius: 10px; padding: 18px 22px; }
+.fr-lad i { font-style: normal; font-family: var(--font-mono); font-size: 14px; width: 30px; height: 30px; border-radius: 50%; background: var(--on); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.fr-lad b { font-family: var(--font-display); font-weight: 800; font-size: 22px; color: #042C53; }
+.fr-lad em { align-self: center; width: 2px; height: 14px; background: #A9CBEF; }
+
+/* Title slide: light */
+.title-slide { background: #ffffff; color: var(--ink); }
+.title-slide h1 { color: var(--ink); }
+.title-slide .sub { color: var(--muted); }
+.title-slide .byline { color: var(--muted); }
+.title-slide .byline b { color: var(--ink); }
+.title-slide .byline span { color: var(--muted); border-left-color: var(--line); }
+.title-slide .slide-num { color: var(--muted); }
+.t-layers { display: flex; gap: 10px; margin-top: 34px; }
+.t-layers span { font-family: var(--font-display); font-weight: 700; font-size: 16px; color: #fff; padding: 8px 16px; border-radius: 6px; }
+.t-layers .on { background: var(--on); } .t-layers .off { background: var(--off); } .t-layers .nl { background: var(--nl); } .t-layers .st { background: var(--st); }
+
+/* Storage colour: berry */
+:root { --st: #8E3B5E; --st-soft: #F7E8EF; }
+.slide[data-layer="storage"] { --ld: #5B2440; }
+.a-store .a-lbl { color: #5B2440; }
+.agenda a.k-st { background: var(--st); }
+
+/* Storage colour: softer plum */
+:root { --st: #7A5A6E; --st-soft: #F3EEF1; }
+.slide[data-layer="storage"] { --ld: #4A3443; }
+.a-store .a-lbl { color: #4A3443; }
+
+/* Storage colour: brighter mauve */
+:root { --st: #A06B8C; --st-soft: #F7EEF4; }
+.slide[data-layer="storage"] { --ld: #6E4561; }
+.a-store .a-lbl { color: #6E4561; }
+
+/* Storage colour: amber; callouts move to neutral so they don't clash */
+:root { --st: #B7791F; --st-soft: #FBF1DF; }
+.slide[data-layer="storage"] { --ld: #7A4F0E; }
+.a-store .a-lbl { color: #7A4F0E; }
+.prod, .case { background: #F2F3F6; }
+.prod .lbl, .case .lbl { background: var(--ink); }
+
+/* Agenda v3: eight equal sections */
+.ag2 { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; gap: 16px; margin-bottom: 30px; }
+.ag2-c { --c: var(--ink); text-decoration: none; color: var(--ink); background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 8px; transition: border-color .15s, transform .15s; }
+.ag2-c:hover { border-color: var(--c); transform: translateY(-2px); }
+.ag2-c:focus-visible { outline: 3px solid var(--c); outline-offset: 2px; }
+.ag2-c i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); }
+.ag2-c b { font-family: var(--font-display); font-weight: 800; font-size: 26px; line-height: 1.1; color: var(--c); margin-top: 6px; }
+.ag2-c span { font-size: 15px; line-height: 1.45; color: var(--muted); margin-top: auto; }
+.ag2-c.on { --c: var(--on); } .ag2-c.off { --c: var(--off); } .ag2-c.nl { --c: var(--nl); } .ag2-c.st { --c: var(--st); }
+
+/* Agenda v4: eight rows */
+.ag3 { display: flex; flex-direction: column; gap: 0; margin: 4px 0 26px; border-top: 1.5px solid var(--line); }
+.ag3 .ag2-c { flex: 1; flex-direction: row; align-items: center; gap: 18px; border: 0; border-bottom: 1.5px solid var(--line); border-radius: 0; padding: 0 12px; background: transparent; transform: none; }
+.ag3 .ag2-c:hover { background: var(--bg-hover, #f6f7f9); transform: none; }
+.ag3 .ag2-c i { flex: none; width: 12px; height: 12px; }
+.ag3 .ag2-c b { margin: 0; font-size: 22px; flex: 0 0 200px; }
+.ag3 .ag2-c span { margin: 0; font-size: 16px; }
+
+/* Agenda: uniform ink */
+.ag3 .ag2-c.on, .ag3 .ag2-c.off, .ag3 .ag2-c.nl, .ag3 .ag2-c.st { --c: var(--ink); }
+.ag3 .ag2-c i { background: #c9ccd3; }
+.ag3 .ag2-c:hover i { background: var(--ink); }
+
+/* Agenda: balanced type */
+.ag3 .ag2-c b { font-size: 24px; flex: 0 0 180px; }
+.ag3 .ag2-c span { font-size: 18px; color: #4a5366; }
+.ag3 .ag2-c { gap: 20px; padding: 0 14px; }
+
+/* Trapezoid funnel */
+.fz-wrap { display: grid; grid-template-columns: 360px 1fr; gap: 18px; align-items: center; }
+.fz-stack, .fz-lab { display: flex; flex-direction: column; gap: 5px; }
+.fz { height: 68px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; text-align: center; }
+.fz b { font-family: var(--font-display); font-weight: 800; font-size: 17px; line-height: 1.1; }
+.fz span { font-family: var(--font-mono); font-size: 13px; opacity: .85; margin-top: 2px; }
+.fz0 { background: #042C53; } .fz1 { background: #0E4B85; } .fz2 { background: #185FA5; } .fz3 { background: #1F68AA; } .fz4 { background: #2A72B5; }
+.fz-lab div { height: 68px; display: flex; flex-direction: column; justify-content: center; border-bottom: 1px dashed var(--line); }
+.fz-lab div:last-child { border-bottom: 0; }
+.fz-lab p { font-size: 15px; line-height: 1.3; }
+.fz-lab em { font-style: normal; font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Latency budget: stacked bar */
+.lb { margin-top: 10px; }
+.lb-bar { display: flex; height: 40px; border-radius: 6px; overflow: hidden; gap: 2px; }
+.lb-bar div { display: flex; align-items: center; justify-content: center; min-width: 0; }
+.lb-bar b { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; color: #fff; }
+.lb-scale { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.lb-leg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin-top: 12px; }
+.lb-leg div { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.lb-leg i { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.lb-leg em { font-style: normal; font-family: var(--font-mono); font-size: 13px; color: var(--muted); margin-left: auto; }
+.lb-note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+.rt-mgr div p { display: flex; flex-direction: column; gap: 1px; margin: 0; }
+.rt-mgr div p b { font-weight: 700; font-size: 15.5px; }
+.rt-mgr div p span { font-family: var(--font-body); font-weight: 400; font-size: 12.5px; color: var(--muted); }
+.rt-mgr div { padding: 8px 12px; }
+
+/* two-tower detail v2 */
+.rt-tt2 { margin-top: 26px; border: 1.5px solid var(--line); border-radius: 10px; padding: 14px 18px; display: grid; grid-template-columns: 110px 1fr 230px; gap: 20px; align-items: center; }
+.tt-lanes { display: flex; flex-direction: column; gap: 8px; }
+.tt-l { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 8px; }
+.tt-l > em { font-style: normal; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.tt-l .nd { min-height: 0; padding: 7px 10px; }
+.tt-l .nd b { font-size: 13.5px; }
+.tt-l .nd span { font-size: 11.5px; }
+.tt-l .chain > em { flex-basis: 18px; }
+.tt-train { display: grid; grid-template-columns: 78px 1fr; gap: 6px 10px; margin: 0; padding-left: 18px; border-left: 1.5px solid var(--line); font-size: 14px; }
+.tt-train dt { font-family: var(--font-display); font-weight: 700; color: var(--on); }
+.tt-train dd { margin: 0; color: var(--ink); }
+
+/* two-tower detail v3 */
+.rt-tt2.v2 { grid-template-columns: 110px 1fr; margin-top: 22px; padding: 14px 18px; }
+.tt-l.off { --lc: var(--off); --ls: var(--off-soft); --ld: #04342C; }
+.tt-l.on { --lc: var(--on); --ls: var(--on-soft); --ld: #042C53; }
+.tt-l.off > em { color: var(--off); } .tt-l.on > em { color: var(--on); }
+.tt-train2 { display: flex; align-items: center; gap: 22px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 14px; }
+.tt-train2 > em { font-style: normal; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); width: 56px; }
+.tt-train2 b { font-family: var(--font-display); color: var(--ink); margin-right: 6px; }
+.tt-train2 span { color: var(--muted); }
+.tt-l .nd.dk { background: var(--lc); border-color: var(--lc); }
+
+/* slide 20 · experiments diagram */
+.xp{margin-top:8px}
+.xp-launch{display:flex;align-items:baseline;gap:14px;background:var(--ink);color:#fff;border-radius:10px;padding:11px 18px}
+.xp-launch b{font-size:17px}.xp-launch span{font-size:14px;opacity:.8}.xp-launch em{margin-left:auto;font-style:normal;font-size:12px;opacity:.6;font-family:var(--mono,monospace);letter-spacing:.04em}
+.xp-dom{display:flex;gap:12px;margin-top:10px}
+.xp-d{border:1.5px solid #cfd5df;border-radius:10px;padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px;background:#fafbfc}
+.xp-h{font-weight:700;font-size:15px;color:var(--ink)}.xp-h span{font-weight:400;font-size:12.5px;color:#6b7385;margin-left:6px}
+.xp-d:first-child .xp-row{flex-direction:column;align-items:stretch;justify-content:center;flex:1;gap:8px}
+.xp-d:first-child .xp-bar{flex:0 0 30px}
+.xp-d:first-child .xp-l{flex:none}
+.xp-row{display:flex;align-items:center;gap:10px}
+.xp-l{flex:0 0 150px;line-height:1.1}.xp-l b{display:block;font-size:14px}.xp-l span{font-size:12px;color:#6b7385}
+.xp-bar{flex:1;display:flex;height:30px;border-radius:6px;overflow:hidden;border:1px solid #d6dbe4;background:#fff}
+.xp-bar i{font-style:normal;font-size:11.5px;display:flex;align-items:center;justify-content:center;white-space:nowrap}
+.xp-bar i.t{background:var(--on);color:#fff}.xp-bar i.t2{background:#4A86C5;color:#fff;border-left:1px solid #fff}
+.xp-bar i.b{background:repeating-linear-gradient(135deg,#f1f3f6 0 6px,#e8ebf0 6px 12px)}
+.xp-bar i.c{background:#E6F1FB;color:var(--on);border-left:1.5px solid var(--on)}
+.xp-key{display:flex;gap:22px;margin-top:9px;font-size:12.5px;color:#4a5366;flex-wrap:wrap}
+.xp-key b{color:var(--ink)}
+.xp-key .lg{margin-left:auto;display:flex;align-items:center;gap:5px}
+.xp-key .lg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-left:8px}
+.xp-key .lg i.t{background:var(--on)}.xp-key .lg i.c{background:#fff;border:1.5px solid #B7791F}.xp-key .lg i.b{background:#e8ebf0}
+
+/* slide 20 v2 */
+.xp2{display:grid;grid-template-columns:706px 1fr;gap:30px;margin-top:6px}
+.xp2-l .xp-launch{margin-bottom:10px}
+.xp-svg{display:block;font-family:inherit}
+.xp-svg .t-row{font-size:14px;font-weight:700;fill:#141A2B}
+.xp-svg .t-h{font-size:13.5px;font-weight:700;fill:#141A2B}
+.xp-svg .t-c{font-size:13px;font-weight:600}.xp-svg .w{fill:#fff}.xp-svg .a{fill:#8A5A12}.xp-svg .g{fill:#185FA5}
+.xp-svg .t-b{font-size:13.5px;font-weight:700;fill:#141A2B}.xp-svg .t-s{font-size:12px;fill:#6b7385}
+.xp2-r{display:flex;flex-direction:column;justify-content:space-between;padding:4px 0}
+.xp2-r .pt{border-left:3px solid var(--on);padding:2px 0 2px 14px}
+.xp2-r .pt b{display:block;font-size:17px;color:var(--ink)}.xp2-r .pt b em{font-style:normal;color:var(--on);margin-right:8px}
+.xp2-r .pt span{display:block;font-size:13.5px;color:#4a5366;margin-top:3px;line-height:1.35}
+.xp-ov{display:flex;align-items:center;gap:10px;border:1px solid #d6dbe4;border-radius:10px;padding:9px 16px;margin-top:12px;background:#fff}
+.xp-ov b{font-size:14px;margin-right:6px}.xp-ov i{font-style:normal;color:#8A93A6}
+.xp-ov .pl{font-family:var(--mono,monospace);font-size:13px;background:#EEF0F4;border-radius:999px;padding:4px 12px}
+.xp-ov .pl.hi{background:var(--on);color:#fff}
+.xp-ov .nt{margin-left:auto;font-size:13px;color:#4a5366}
+
+/* wrap-up */
+.wu{display:grid;grid-template-columns:1.25fr 1fr;gap:34px;margin-top:8px}
+.wu-cap{font-family:var(--mono,monospace);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#6b7385;margin:0 0 10px}
+.wu-r{display:flex;align-items:center;gap:18px;padding:17px 0;border-bottom:1px solid #e4e7ec}
+.wu-r:last-child{border-bottom:0}
+.wu-k{flex:0 0 108px;color:#fff;font-weight:700;font-size:14px;text-align:center;border-radius:8px;padding:9px 0}
+.wu-r p{margin:0}.wu-r b{display:block;font-size:18px;color:var(--ink)}.wu-r p span{display:block;font-size:14px;color:#4a5366;margin-top:3px}
+.wu-r .wu-k{color:#fff}
+.wu-m{display:flex;flex-direction:column;gap:18px;padding-top:24px}
+.wu-card dl{display:grid;grid-template-columns:100px 1fr;gap:12px 10px;margin:10px 0 0}
+.wu-card dt{font-weight:700;font-size:15px;color:var(--on)}.wu-card dd{margin:0;font-size:15px;color:#2a3142}
+.wu-thx{text-align:right;margin-top:auto;padding-bottom:6px}
+.wu-thx .t{font-family:var(--font-display);font-weight:800;font-size:60px;line-height:1;color:var(--accent);margin:0}
+.wu-thx .q{font-family:var(--font-display);font-weight:600;font-size:24px;margin:6px 0 0}
+
+/* offline svg diagrams */
+.od-svg{display:block;font-family:inherit}
+.od-svg .nt{font-family:var(--font-display);font-weight:800;font-size:14.5px}
+.od-svg .ns{font-size:12px}
+.od-svg .cap{font-family:var(--mono,monospace);font-size:11px;letter-spacing:.1em;fill:#6b7385}
+.od-svg .bl{font-weight:700;font-size:12.5px}
+.od-svg .el{font-size:12px;fill:#4a5366}
+.od-svg .nc{font-size:12.5px;font-weight:600}
+.od-svg .lb{font-family:var(--font-display);font-weight:800;font-size:15px}
+
+/* agenda v4 */
+.agx{display:grid;grid-template-columns:270px 34px 1fr 34px 250px;margin-top:30px;align-items:stretch;height:420px}
+.agx .agx-l, .agx .agx-l b, .agx .agx-l span, .agx .agx-l em, .agx .agx-l small{color:#fff}
+.agx-col{display:flex;flex-direction:column;gap:14px}
+.agx-h{font-family:var(--font-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 2px}
+.agx a{text-decoration:none;color:inherit}
+.agx-c{position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;gap:6px;background:#fff;border:1.5px solid var(--line);border-left:6px solid var(--ink);border-radius:12px;padding:16px 18px}
+.agx-c em{font-style:normal;font-family:var(--font-mono);font-size:13px;color:var(--muted)}
+.agx-c b{font-family:var(--font-display);font-size:24px;font-weight:800;color:var(--ink)}
+.agx-c span{font-size:14.5px;color:#4a5366;line-height:1.35}
+.agx-c.cl{border-left-color:var(--cl);background:#FDF3EF}.agx-c.cl em{color:var(--cl)}
+.agx-c.ev{border-left-color:var(--ink);background:#F2F3F6}
+.agx-c.wu{border-left-color:#8A93A6}
+.agx-mini{position:absolute;right:16px;top:16px;display:flex;flex-direction:column;gap:3px}
+.agx-mini u{display:block;width:44px;height:7px;border-radius:2px}
+.agx-mini u.on{background:var(--on)}.agx-mini u.st{background:var(--st)}.agx-mini u.nl{background:var(--nl)}.agx-mini u.off{background:var(--off)}
+.agx-arr{position:relative}
+.agx-arr::before{content:"";position:absolute;left:8px;right:10px;top:calc(50% + 12px);border-top:2px solid #b4b2a9}
+.agx-arr::after{content:"";position:absolute;right:4px;top:calc(50% + 7px);border-left:9px solid #b4b2a9;border-top:6px solid transparent;border-bottom:6px solid transparent}
+.agx-grid{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.agx-l{display:flex;flex-direction:column;gap:6px;border-radius:12px;padding:18px 20px;color:#fff}
+.agx-l em{font-style:normal;font-family:var(--font-mono);font-size:13px;opacity:.8}
+.agx-l b{font-family:var(--font-display);font-size:26px;font-weight:800}
+.agx-l span{font-size:14.5px;line-height:1.35;opacity:.92}
+.agx-l small{margin-top:auto;font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
+.agx-l.on{background:var(--on)}.agx-l.off{background:var(--off)}.agx-l.nl{background:var(--nl)}.agx-l.st{background:var(--st)}
+
+/* agenda v5 · rows */
+.agy{display:flex;flex-direction:column;gap:8px;margin-top:22px}
+.agy-r{display:grid;grid-template-columns:54px 190px 1fr 170px;align-items:center;height:50px;border-radius:10px;text-decoration:none;color:inherit;background:#F6F7F9;overflow:hidden;position:relative}
+.agy-r em{align-self:stretch;display:flex;align-items:center;justify-content:center;font-style:normal;font-family:var(--font-mono);font-size:14px;font-weight:600;color:#fff;background:var(--ink)}
+.agy-r b{font-family:var(--font-display);font-size:22px;font-weight:800;color:var(--ink);padding-left:20px}
+.agy-r span{font-size:15.5px;color:#4a5366}
+.agy-r small{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:right;padding-right:18px}
+.agy-r.cl{background:#FDF3EF}.agy-r.cl em{background:var(--cl)}
+.agy-r.on{background:var(--on-soft)}.agy-r.on em{background:var(--on)}.agy-r.on b,.agy-r.on small{color:var(--on)}
+.agy-r.off{background:var(--off-soft)}.agy-r.off em{background:var(--off)}.agy-r.off b,.agy-r.off small{color:var(--off)}
+.agy-r.nl{background:var(--nl-soft)}.agy-r.nl em{background:var(--nl)}.agy-r.nl b,.agy-r.nl small{color:var(--nl)}
+.agy-r.st{background:var(--st-soft)}.agy-r.st em{background:var(--st)}.agy-r.st b,.agy-r.st small{color:#8A5A12}
+.agy-r.wp em{background:#8A93A6}
+.agy-r .agx-mini{position:absolute;right:18px;top:12px;flex-direction:row;gap:4px}
+.agy-r .agx-mini u{width:22px;height:28px;border-radius:3px}
+
+/* agenda v5 · section colours */
+.agy-r.cl b{color:#A8401E}
+.agy-r.ar{background:#E2F3F4}.agy-r.ar em{background:#0E7C86}.agy-r.ar b{color:#0E7C86}
+.agy-r.ev{background:#FBEAF0}.agy-r.ev em{background:#B8325A}.agy-r.ev b{color:#B8325A}
+.agy-r.wp{background:#FDF3EF}.agy-r.wp em{background:var(--cl)}.agy-r.wp b{color:#A8401E}
+
+/* agenda v6 · nested layers */
+.agy .agy-r{height:62px}
+.agy{gap:12px;margin-top:26px}
+.agy-arch{position:relative;display:flex;flex-direction:column;gap:0;background:#E2F3F4;border-radius:10px;overflow:hidden}
+.agy-arch::before{content:"";position:absolute;left:0;top:0;bottom:0;width:54px;background:#0E7C86}
+.agy-arch .agy-r em{background:transparent;position:relative}
+.agy-arch .agy-r{border-radius:0;background:transparent}
+.agy-layers{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:2px 16px 16px 70px}
+.agy-t{display:flex;flex-direction:column;gap:5px;border-radius:9px;padding:14px 16px;min-height:118px;text-decoration:none;color:#fff}
+.agy .agy-t, .agy .agy-t b, .agy .agy-t span, .agy .agy-t small{color:#fff}
+.agy-t b{font-family:var(--font-display);font-size:19px;font-weight:800}
+.agy-t span{font-size:13px;line-height:1.35;opacity:.92}
+.agy-t small{margin-top:auto;padding-top:6px;font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.78}
+.agy-t.on{background:var(--on)}.agy-t.off{background:var(--off)}.agy-t.nl{background:var(--nl)}.agy-t.st{background:var(--st)}
+
+/* nearline merged */
+.nl-cards .card{padding:12px 20px}
+.nl-cards h3{margin-top:2px}
+.nl-ln .nd{min-height:40px;padding:8px 12px}
+.nl-ln .nd b{font-size:15px}
+
+/* diversity svg */
+.dv-svg{display:block;margin-top:6px;font-family:inherit}
+.dv-svg .dv-t{font-size:13px;font-weight:700;fill:#fff}
+.dv-svg .dv-q{font-size:12px;fill:#6b7385}
+.dv-svg .dv-l{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;fill:#6b7385}
+.dv-svg .dv-w{font-size:12px;fill:#B8325A}
+.dv-svg .dv-v{font-size:13px;font-weight:700}
+.dv-svg .dv-c{font-size:12px;fill:#4a5366}
+.dv-k{font-style:normal;font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6b7385;margin-right:4px;align-self:center}
+.dv-knobs{display:flex;gap:14px;margin-top:8px;font-size:13.5px;color:#4a5366;flex-wrap:wrap}
+.dv-knobs b{color:var(--ink);margin-right:4px}
+
+/* rerank full-width DPP */
+.dv-grid{display:grid;grid-template-columns:640px 1fr;gap:28px;align-items:center}
+.dv-side{display:flex;flex-direction:column;gap:12px}
+.dv-pt{border-left:3px solid #B8325A;padding-left:12px}
+.dv-pt b{display:block;font-family:var(--font-display);font-size:16px;color:var(--ink)}
+.dv-pt span{font-size:14px;color:#4a5366}
+.dv-card .dv-knobs{flex-direction:column;gap:4px;margin-top:2px}
+
+/* colour audit: each section uses its own accent */
+.title-slide .eyebrow { background: var(--ink); }
+.fr-img { background: var(--cl-soft); }
+.fr-stats b { color: var(--cl); }
+.fr-lad div { background: var(--cl-soft); }
+.fr-lad i { background: var(--cl); }
+.fr-lad b { color: #6E2A12; }
+.xp-key .lg i.t { background: var(--on); }
+.xp-key .lg i.c { border-color: #8a8984; }
+.xp-svg .a { fill: #4a5366; }
+.xp2-r .pt { border-left-color: #B8325A; }
+.xp2-r .pt b em { color: #B8325A; }
+.xp-ov .pl.hi { background: var(--on); }
+.wu-card dt { color: #A8401E; }
+.ofd{display:flex;align-items:center;gap:8px;margin-top:4px}
+.ofd-def{background:var(--st-soft);border:1.5px solid var(--st);border-radius:6px;padding:5px 9px;font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--ink);display:flex;flex-direction:column;line-height:1.2}
+.ofd-def i{font-style:normal;font-weight:400;font-size:11px;color:#6b7385}
+.ofd-ar{color:#6b7385;font-size:16px}
+.ofd-out{display:flex;flex-direction:column;gap:4px}
+.ofd-out b{font-size:12.5px;color:#fff;border-radius:5px;padding:3px 8px;white-space:nowrap}
+.ofd-out .o1{background:var(--off)}.ofd-out .o2{background:var(--on)}
+.wu-thx .t { color: var(--cl); }
+
+/* attribution */
+.footer-tag a, .byline a, .wu-thx .lic a { color: inherit; text-decoration: none; }
+.footer-tag a:hover, .byline a:hover, .wu-thx .lic a:hover { text-decoration: underline; }
+.wu-thx .lic { margin: 16px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.wu-thx .lic a { color: var(--ink); font-weight: 600; }
+#notes,#btn-notes{display:none!important}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="viewport">
+<div id="stage">
+
+<!-- 1 · Title -->
+<section class="slide title-slide">
+  <div class="t-top"><p class="eyebrow">ML System Design</p></div>
+  <div class="t-mid">
+    <h1>Video Recommendation System</h1>
+    <p class="sub">An end-to-end architecture, one layer at a time</p>
+    <div class="t-layers"><span class="on">Online</span><span class="off">Offline</span><span class="nl">Nearline</span><span class="st">Storage</span></div>
+  </div>
+  <div class="t-bot"><p class="byline"><b>Frandy Yang</b><span>v1.1 · Nov 2026</span><span><a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a></span></p></div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 2 · Agenda -->
+<section class="slide">
+  <p class="eyebrow">Agenda</p>
+  <h2>What we'll cover</h2>
+  <div class="agy">
+    <a href="#s3" class="agy-r cl"><em>01</em><b>Frame</b><span>Requirements, scale and the business objective</span><small></small></a>
+    <div class="agy-arch">
+      <a href="#s4" class="agy-r ar"><em>02</em><b>Architecture</b><span>Four layers and how they connect, then one layer at a time</span><small></small></a>
+      <div class="agy-layers">
+        <a href="#s5" class="agy-t on"><b>Online</b><span>Gateway · Retrieval · Pre-ranking · Ranking · Rerank</span><small>milliseconds</small></a>
+        <a href="#s11" class="agy-t off"><b>Offline</b><span>Data · features · training · what ships online</span><small>hours to days</small></a>
+        <a href="#s13" class="agy-t nl"><b>Nearline</b><span>Event stream · real-time features · online learning</span><small>seconds to minutes</small></a>
+        <a href="#s14" class="agy-t st"><b>Storage</b><span>Feature server · vector index · registry · caches</span><small>the contract</small></a>
+      </div>
+    </div>
+    <a href="#s15" class="agy-r ev"><em>03</em><b>Evaluation</b><span>Multi-layer A/B experiments</span><small></small></a>
+    <a href="#s16" class="agy-r wp"><em>04</em><b>Wrap-up</b><span>What we measure · Q&amp;A</span><small></small></a>
+  </div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 3 · Frame -->
+<section class="slide">
+  <p class="eyebrow" style="background:#C2502A">Frame</p>
+  <h2>Problem <span class="sep">&amp;</span> objective</h2>
+  <div class="fr">
+    <div class="fr-l">
+      <p class="fr-h">The problem</p>
+      <figure class="fr-img"><img src="img/up-next.png" alt="Sketch of a video player with a column of Up Next recommendation slots beside it"></figure>
+      <div class="fr-stats">
+        <div><b>~1B</b><span>videos</span></div>
+        <div><b>~1B</b><span>daily users</span></div>
+        <div><b>5</b><span>slots</span></div>
+        <div><b>250 ms</b><span>latency</span></div>
+      </div>
+    </div>
+    <div class="fr-r">
+      <p class="fr-h">The objective</p>
+      <div class="fr-lad">
+        <div><i>1</i><b>Maximise CTR</b></div>
+        <div><i>2</i><b>Maximise total watch time</b></div>
+        <div><i>3</i><b>Quality-adjusted watch time</b></div>
+        <div><i>4</i><b>Long-term satisfaction</b></div>
+      </div>
+    </div>
+  </div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 4 · System architecture -->
+<section class="slide">
+  <p class="eyebrow" style="background:#0E7C86">Architecture</p>
+  <h2 style="margin-bottom:14px">System architecture <span class="sep">·</span> four layers</h2>
+  <div class="arch flex1">
+    <div class="a-band a-client" style="grid-column:1;grid-row:1/8"></div>
+    <div class="a-lbl a-client-lbl" style="grid-column:1;grid-row:1">Client</div>
+    <div class="a-node a-cnode" style="grid-column:1;grid-row:1"><b>Request</b><span>watch page</span></div>
+    <div class="a-down" style="grid-column:1;grid-row:2/5"><span>watch &amp;<br>interact</span></div>
+    <div class="a-node a-cnode a-logs" style="grid-column:1;grid-row:5/8"><b>Event logs</b><span>impressions<br>clicks<br>watch time</span></div>
+
+    <div class="a-band a-online" style="grid-column:2/4;grid-row:1">
+      <div class="a-lbl">Online <i>· milliseconds</i></div>
+      <div class="a-flow"><em></em>
+        <a class="a-node" href="#s5"><b>API gateway</b><span>A/B traffic split</span></a><em></em>
+        <a class="a-node" href="#s6"><b>Retrieval</b><span>multi-channel</span></a><em></em>
+        <a class="a-node" href="#s7"><b>Pre-ranking</b><span>lightweight · hundreds</span></a><em></em>
+        <a class="a-node" href="#s8"><b>Ranking</b><span>multi-task heads</span></a><em></em>
+        <a class="a-node" href="#s10"><b>Rerank</b><span>diversity · rules</span></a><em></em>
+        <a class="a-node" href="#s5"><b>Response</b><span>final slate</span></a>
+      </div>
+    </div>
+    <div class="a-up" style="grid-column:2;grid-row:2"><i></i>reads features · embeddings · models</div>
+
+    <div class="a-band a-store" style="grid-column:2/4;grid-row:3">
+      <div class="a-lbl">Storage &amp; feature serving</div>
+      <div class="a-flow a-dbs">
+        <a class="a-node a-db" href="#s14"><b>Feature server</b><span>Redis · HBase</span></a>
+        <a class="a-node a-db" href="#s14"><b>Vector index (ANN)</b><span>Faiss · Milvus</span></a>
+        <a class="a-node a-db" href="#s14"><b>Model registry</b><span>versions · configs</span></a>
+      </div>
+    </div>
+    <div class="a-up" style="grid-column:2;grid-row:4"><i></i>writes real-time features · index &amp; model deltas</div>
+
+    <div class="a-band a-near" style="grid-column:2;grid-row:5">
+      <div class="a-lbl">Nearline <i>· seconds to minutes</i></div>
+      <div class="a-flow"><em></em>
+        <a class="a-node" href="#s13"><b>Event stream</b><span>Kafka · Flink</span></a><em></em>
+        <a class="a-node" href="#s13"><b>Real-time features</b><span>windowed counts · samples</span></a><em></em>
+        <a class="a-node" href="#s13"><b>Session interest</b><span>short-term sequence</span></a><em></em>
+        <a class="a-node" href="#s13"><b>Online learning</b><span>model &amp; index deltas</span></a>
+      </div>
+    </div>
+
+    <div class="a-band a-off" style="grid-column:2;grid-row:7">
+      <div class="a-lbl">Offline <i>· hours to days</i></div>
+      <div class="a-flow"><em></em>
+        <a class="a-node a-db" href="#s11"><b>Data lake</b><span>Hive · HDFS</span></a><em></em>
+        <a class="a-node" href="#s11"><b>ETL</b><span>join · clean</span></a><em></em>
+        <a class="a-node" href="#s12"><b>Features &amp; labels</b><span>sample building</span></a><em></em>
+        <a class="a-node" href="#s12"><b>Training</b><span>eval · tuning</span></a><em></em>
+        <a class="a-node" href="#s11"><b>Embeddings</b><span>videos · users</span></a>
+      </div>
+    </div>
+    <div class="a-side" style="grid-column:3;grid-row:4/8"><span>writes full models · embeddings</span></div>
+  </div>
+  <div class="tip" style="margin-top:10px"><span class="lbl">The map</span>Next: online, offline, nearline, then storage. Click any box to jump there.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 5 · Online overview -->
+<section class="slide" data-layer="online">
+  <p class="eyebrow">① Online</p>
+  <div class="strip" aria-label="Position on the architecture map"><span class="cur">Gateway</span><i></i><span class="cur">Retrieval</span><i></i><span class="cur">Pre-ranking</span><i></i><span class="cur">Ranking</span><i></i><span class="cur">Rerank</span><i></i><span class="cur">Response</span></div>
+  <h2>Online <span class="sep">·</span> the recommendation funnel</h2>
+  <div class="grid flex1" style="grid-template-columns:1.25fr 1fr;gap:26px">
+    <div class="fz-wrap">
+      <div class="fz-stack">
+        <div class="fz fz0" style="clip-path:polygon(0.0% 0,100.0% 0,92.0% 100%,8.0% 100%)"><b>Corpus</b><span>billions</span></div><div class="fz fz1" style="clip-path:polygon(8.0% 0,92.0% 0,84.5% 100%,15.5% 100%)"><b>Retrieval</b><span>thousands</span></div><div class="fz fz2" style="clip-path:polygon(15.5% 0,84.5% 0,77.5% 100%,22.5% 100%)"><b>Pre-ranking</b><span>hundreds</span></div><div class="fz fz3" style="clip-path:polygon(22.5% 0,77.5% 0,71.0% 100%,29.0% 100%)"><b>Ranking</b><span>tens</span></div><div class="fz fz4" style="clip-path:polygon(29.0% 0,71.0% 0,65.5% 100%,34.5% 100%)"><b>Rerank</b><span>a slate</span></div>
+      </div>
+      <div class="fz-lab">
+        <div><p>Eligible videos after policy filters</p></div><div><p>Many channels in parallel</p><em>optimise: recall</em></div><div><p>Lightweight model and features</p><em>optimise: recall at low cost</em></div><div><p>Full features, multi-task</p><em>optimise: precision</em></div><div><p>Value model, rules</p><em>optimise: list quality</em></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <h3>Latency budget <span class="muted small" style="font-weight:400">· illustrative</span></h3>
+        <div class="bars" style="margin-top:8px">
+          <div class="bar"><span>Retrieval</span><div class="track"><div class="fill" style="width:20%"></div></div><span class="ms">50 ms</span></div>
+          <div class="bar"><span>Feature fetch</span><div class="track"><div class="fill" style="width:16%"></div></div><span class="ms">40 ms</span></div>
+          <div class="bar"><span>Pre-ranking</span><div class="track"><div class="fill" style="width:12%"></div></div><span class="ms">30 ms</span></div>
+          <div class="bar"><span>Ranking</span><div class="track"><div class="fill" style="width:32%"></div></div><span class="ms">80 ms</span></div>
+          <div class="bar"><span>Rerank</span><div class="track"><div class="fill" style="width:8%"></div></div><span class="ms">20 ms</span></div>
+          <div class="bar"><span>Network + headroom</span><div class="track"><div class="fill" style="width:12%"></div></div><span class="ms">30 ms</span></div>
+          <div class="bar" style="border-top:1px solid var(--line);padding-top:6px"><b>Total</b><span></span><span class="ms"><b>250 ms</b></span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Gateway &amp; Response</h3>
+        <p class="small"><b>In:</b> request context (current video, device, locale) and the user's <b>A/B bucket</b>.<br><b>Out:</b> the final slate plus an <b>impression log</b> keyed by request ID, which feeds nearline and offline.</p>
+      </div>
+    </div>
+  </div>
+  <div class="tip" style="margin-top:14px"><span class="lbl">Key point</span>Each stage filters for the next. A great Ranking model can't rescue a video that Retrieval never surfaced, so <b>monitor every stage</b>, not only the final slate.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 6 · Retrieval -->
+<section class="slide" data-layer="online">
+  <p class="eyebrow">① Online</p>
+  <div class="strip" aria-label="Position on the architecture map"><span>Gateway</span><i></i><span class="cur">Retrieval</span><i></i><span>Pre-ranking</span><i></i><span>Ranking</span><i></i><span>Rerank</span><i></i><span>Response</span></div>
+  <h2>Retrieval <span class="sep">·</span> multi-channel</h2>
+  <div class="rt">
+    <div class="rt-pool"><b>Content pool</b><span>billions</span></div>
+    <svg class="rt-fan" viewBox="0 0 44 290" preserveAspectRatio="none" aria-hidden="true">
+      <g fill="none" stroke="#8a8984" stroke-width="1.5">
+        <path d="M0 145 C22 145 18 25 40 25"/><path d="M0 145 C22 145 18 85 40 85"/><path d="M0 145 L40 145"/><path d="M0 145 C22 145 18 205 40 205"/><path d="M0 145 C22 145 18 265 40 265"/>
+      </g>
+    </svg>
+    <div class="rt-src">
+      <div><b>Interest tags</b><span>precise match</span></div>
+      <div class="hl"><b>Two-tower ANN</b><span>generalisation</span></div>
+      <div><b>Item / User CF</b><span>similar users</span></div>
+      <div><b>Trending</b><span>freshness · fallback</span></div>
+      <div><b>Exploration</b><span>new interests</span></div>
+    </div>
+    <svg class="rt-arr" viewBox="0 0 96 290" preserveAspectRatio="none" aria-hidden="true">
+      <defs><marker id="rta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker></defs>
+      <g stroke="#8a8984" stroke-width="1.5" marker-end="url(#rta)"><line x1="6" y1="25" x2="90" y2="25"/><line x1="6" y1="145" x2="90" y2="145"/><line x1="6" y1="205" x2="90" y2="205"/><line x1="6" y1="265" x2="90" y2="265"/></g>
+      <line x1="6" y1="85" x2="90" y2="85" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#rta)"/>
+      <path d="M40 78 L54 92 M54 78 L40 92" stroke="#c0392b" stroke-width="2.2"/>
+      <text x="47" y="68" text-anchor="middle" font-size="12" font-weight="600" fill="#c0392b" font-family="IBM Plex Sans, Arial, sans-serif">if timeout</text>
+      <text x="47" y="109" text-anchor="middle" font-size="12" fill="#c0392b" font-family="IBM Plex Sans, Arial, sans-serif">→ dropped</text>
+    </svg>
+    <div class="rt-mgr">
+      <b class="rt-mt">Recall manager</b>
+      <div><i>1</i><p><b>Merge &amp; dedupe</b><span>keeps each channel's score</span></p></div>
+      <div><i>2</i><p><b>Light filters</b><span>blocklist · seen · low quality</span></p></div>
+      <div><i>3</i><p><b>Quota per channel</b><span>e.g. new vs. returning users</span></p></div>
+      <p><span class="rt-to">per-channel timeout · the rest carry on</span></p>
+    </div>
+    <svg class="rt-arr2" viewBox="0 0 40 20" aria-hidden="true"><line x1="2" y1="10" x2="36" y2="10" stroke="#8a8984" stroke-width="1.5" marker-end="url(#rta)"/></svg>
+    <div class="rt-out"><div class="rt-n"><b>thousands</b><span>candidates</span></div><p>↓ to Pre-ranking</p></div>
+  </div>
+  <div class="rt-tt2 v2">
+    <p class="rt-tt-h">Two-tower channel</p>
+    <div>
+      <div class="tt-lanes">
+        <div class="tt-l off"><em>Offline</em><div class="chain"><div class="nd lt"><b>Item features</b></div><em></em><div class="nd"><b>Item tower</b></div><em></em><div class="nd lt"><b>Item vectors</b></div><em></em><div class="nd dk"><b>Vector index</b><span>daily + new videos</span></div></div></div>
+        <div class="tt-l on"><em>Online</em><div class="chain"><div class="nd lt"><b>Request features</b></div><em></em><div class="nd"><b>User tower</b><span>real-time</span></div><em></em><div class="nd lt"><b>User vector</b></div><em></em><div class="nd dk"><b>ANN top-K</b></div></div></div>
+      </div>
+      <div class="tt-train2"><em>Training</em><span><b>Positives</b> engaged pairs</span><span><b>Negatives</b> in-batch + hard</span><span><b>logQ</b> fixes popularity bias</span></div>
+    </div>
+  </div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 7 · Pre-ranking -->
+<section class="slide" data-layer="online">
+  <p class="eyebrow">① Online</p>
+  <div class="strip" aria-label="Position on the architecture map"><span>Gateway</span><i></i><span>Retrieval</span><i></i><span class="cur">Pre-ranking</span><i></i><span>Ranking</span><i></i><span>Rerank</span><i></i><span>Response</span></div>
+  <h2>Pre-ranking <span class="sep">·</span> three designs, pick by budget</h2>
+  <div class="pr-io"><span>thousands from Retrieval</span><em>→</em><b>Pre-ranking</b><em>→</em><span>hundreds to Ranking</span></div>
+  <div class="pr-axis"><span>more cross features · more compute per item</span></div>
+  <div class="pr">
+    <div class="pr-col">
+      <h3>Two-tower <span class="pr-tag">late fusion</span></h3>
+      <div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 198" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="172" width="140" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="78.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">User</text><rect x="158" y="172" width="140" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="228.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Item</text><path d="M78,172 L78,149" stroke="#8a8984" stroke-width="1.8"/><path d="M73.5,150 L78,144 L82.5,150 z" fill="#8a8984"/><path d="M228,172 L228,149" stroke="#8a8984" stroke-width="1.8"/><path d="M223.5,150 L228,144 L232.5,150 z" fill="#8a8984"/><rect x="8" y="76" width="140" height="68" rx="6" fill="#185FA5"/><text x="78.0" y="114.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="13.5">User tower</text><rect x="158" y="76" width="140" height="68" rx="6" fill="#185FA5"/><text x="228.0" y="107.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13.5">Item tower</text><text x="228.0" y="121.0" text-anchor="middle" class="pd-s" fill="#fff">cached offline</text><path d="M78,76 L78,56 L153,56" fill="none" stroke="#8a8984" stroke-width="1.8"/><path d="M228,76 L228,56 L153,56" fill="none" stroke="#8a8984" stroke-width="1.8"/><path d="M153,56 L153,39" stroke="#8a8984" stroke-width="1.8"/><path d="M148.5,40 L153,34 L157.5,40 z" fill="#8a8984"/><rect x="103" y="4" width="100" height="30" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="23.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="13.5">u · v</text></svg></div>
+      <dl class="pr-kv">
+        <dt>Pro</dt><dd>Lowest latency, mature</dd>
+        <dt>Con</dt><dd>No cross features</dd>
+        <dt>Fit</dt><dd>Tight budget, huge candidate sets</dd>
+      </dl>
+    </div>
+    <div class="pr-col">
+      <h3>Three-tower <span class="pr-tag">late + light cross</span></h3>
+      <div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 198" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="172" width="94" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="55.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">User</text><rect x="106" y="172" width="94" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Item</text><rect x="204" y="172" width="94" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="251.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Cross</text><path d="M55.0,172 L55.0,149" stroke="#8a8984" stroke-width="1.8"/><path d="M50.5,150 L55.0,144 L59.5,150 z" fill="#8a8984"/><path d="M153.0,172 L153.0,149" stroke="#8a8984" stroke-width="1.8"/><path d="M148.5,150 L153.0,144 L157.5,150 z" fill="#8a8984"/><path d="M251.0,172 L251.0,149" stroke="#8a8984" stroke-width="1.8"/><path d="M246.5,150 L251.0,144 L255.5,150 z" fill="#8a8984"/><rect x="8" y="76" width="94" height="68" rx="6" fill="#185FA5"/><text x="55.0" y="107.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13.5">User</text><text x="55.0" y="121.0" text-anchor="middle" class="pd-s" fill="#fff">tower</text><rect x="106" y="76" width="94" height="68" rx="6" fill="#185FA5"/><text x="153.0" y="107.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13.5">Item</text><text x="153.0" y="121.0" text-anchor="middle" class="pd-s" fill="#fff">cached</text><rect x="204" y="106" width="94" height="38" rx="6" fill="#042C53"/><text x="251.0" y="122.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13.5">Cross</text><text x="251.0" y="136.0" text-anchor="middle" class="pd-s" fill="#fff">light</text><path d="M55.0,76 L55.0,56 L153,56" fill="none" stroke="#8a8984" stroke-width="1.8"/><path d="M153.0,76 L153.0,56 L153,56" fill="none" stroke="#8a8984" stroke-width="1.8"/><path d="M153,56 L153,39" stroke="#8a8984" stroke-width="1.8"/><path d="M148.5,40 L153,34 L157.5,40 z" fill="#8a8984"/><path d="M251.0,106 L251.0,56 L153,56" fill="none" stroke="#8a8984" stroke-width="1.8"/><rect x="83" y="4" width="140" height="30" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="23.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="13.5">fuse → score</text></svg></div>
+      <dl class="pr-kv">
+        <dt>Pro</dt><dd>Caching + cross features</dd>
+        <dt>Con</dt><dd>Cross tower runs per item</dd>
+        <dt>Fit</dt><dd>Feeds with real-time stats</dd>
+      </dl>
+    </div>
+    <div class="pr-col">
+      <h3>COLD-style <span class="pr-tag">early fusion</span></h3>
+      <div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 198" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="172" width="94" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="55.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">User</text><rect x="106" y="172" width="94" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Item</text><rect x="204" y="172" width="94" height="24" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="251.0" y="188.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Cross</text><path d="M55.0,172 L55.0,160 L153,160" fill="none" stroke="#8a8984" stroke-width="1.8"/><path d="M153.0,172 L153.0,160 L153,160" fill="none" stroke="#8a8984" stroke-width="1.8"/><path d="M251.0,172 L251.0,160 L153,160" fill="none" stroke="#8a8984" stroke-width="1.8"/><path d="M153,160 L153,151" stroke="#8a8984" stroke-width="1.8"/><path d="M148.5,152 L153,146 L157.5,152 z" fill="#8a8984"/><rect x="8" y="114" width="290" height="32" rx="6" fill="#042C53"/><text x="153.0" y="127.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13.5">Feature selection</text><text x="153.0" y="141.0" text-anchor="middle" class="pd-s" fill="#fff">SE block · keep what pays</text><path d="M153,114 L153,99" stroke="#8a8984" stroke-width="1.8"/><path d="M148.5,100 L153,94 L157.5,100 z" fill="#8a8984"/><rect x="8" y="54" width="290" height="40" rx="6" fill="#185FA5"/><text x="153.0" y="71.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13.5">Shallow MLP</text><text x="153.0" y="85.0" text-anchor="middle" class="pd-s" fill="#fff">all features together</text><path d="M153,54 L153,39" stroke="#8a8984" stroke-width="1.8"/><path d="M148.5,40 L153,34 L157.5,40 z" fill="#8a8984"/><rect x="103" y="4" width="100" height="30" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="23.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="13.5">score</text></svg></div>
+      <dl class="pr-kv">
+        <dt>Pro</dt><dd>Early fusion, most accurate</dd>
+        <dt>Con</dt><dd>Little caching, compute-aware tuning</dd>
+        <dt>Fit</dt><dd>Ads, e-commerce</dd>
+      </dl>
+    </div>
+  </div>
+  <div class="tip" style="margin-top:16px"><span class="lbl">Whichever you pick</span>Distill from Ranking, and measure how much of Ranking's top-k survives.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 8 · Ranking model -->
+<section class="slide" data-layer="online">
+  <p class="eyebrow">① Online</p>
+  <div class="strip" aria-label="Position on the architecture map"><span>Gateway</span><i></i><span>Retrieval</span><i></i><span>Pre-ranking</span><i></i><span class="cur">Ranking</span><i></i><span>Rerank</span><i></i><span>Response</span></div>
+  <h2>Ranking <span class="sep">·</span> multi-task model</h2>
+  <div class="rk2">
+    <div class="rk2-feat">
+      <div><b>User</b><span>profile · sequence</span></div>
+      <div><b>Item</b><span>attributes · embedding</span></div>
+      <div><b>Cross</b><span>user × item · source</span></div>
+      <div><b>Context</b><span>time · surface</span></div>
+    </div>
+    <div class="rk-arr"></div>
+    <div class="rk2-model"><b>Multi-task model</b><span>embeddings · sequence encoder · experts</span></div>
+    <div class="rk-arr"></div>
+    <div class="rk2-heads"><span>Click</span><span>Watch time</span><span>Completion</span><span>Like · share</span><span class="w">Negative feedback</span></div>
+    <div class="rk-arr"></div>
+    <div class="rk2-out"><b>predictions</b><span>fused in Rerank</span></div>
+  </div>
+  <p class="rk-sub" style="margin:22px 0 0">Multi-task structures · how tasks share <span class="pr-tag">one tower per head above</span></p>
+  <div class="mt">
+    <div class="mt-c"><h3>Shared-bottom <span class="pr-tag">one trunk</span></h3><div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 190" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,19.5)"><rect x="30" y="3" width="96" height="25" rx="6" fill="#185FA5"/><text x="78.0" y="20.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Task 1 tower</text><rect x="180" y="3" width="96" height="25" rx="6" fill="#042C53"/><text x="228.0" y="20.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Task N tower</text><text x="153" y="20" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="16" letter-spacing="2">···</text><rect x="103" y="128" width="100" height="21" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="143.0" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Input</text><path d="M153,128 L153.0,110.0" stroke="#8a8984" stroke-width="1.8"/><path d="M157.2,110.0 L153,104 L148.8,110.0 z" fill="#8a8984"/><rect x="30" y="60" width="246" height="44" rx="6" fill="#4A86C5"/><text x="153.0" y="79.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Shared bottom</text><text x="153.0" y="92.0" text-anchor="middle" class="pd-s" fill="#fff">one trunk for every task</text><path d="M153,60 L83.5,31.3" stroke="#8a8984" stroke-width="1.8"/><path d="M85.1,27.4 L78,29 L81.9,35.2 z" fill="#8a8984"/><path d="M153,60 L222.5,31.3" stroke="#8a8984" stroke-width="1.8"/><path d="M224.1,35.2 L228,29 L220.9,27.4 z" fill="#8a8984"/></g></svg></div><p>Simplest · tasks pull the trunk apart</p></div>
+    <div class="mt-c hl"><h3>MMoE <span class="pr-tag">a gate per task</span></h3><div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 190" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,19.5)"><rect x="30" y="3" width="96" height="25" rx="6" fill="#185FA5"/><text x="78.0" y="20.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Task 1 tower</text><rect x="180" y="3" width="96" height="25" rx="6" fill="#042C53"/><text x="228.0" y="20.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Task N tower</text><text x="153" y="20" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="16" letter-spacing="2">···</text><rect x="103" y="128" width="100" height="21" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="143.0" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Input</text><path d="M153,128 L153,117" stroke="#8a8984" stroke-width="1.8"/><path d="M75.0,117 L231.0,117" stroke="#8a8984" stroke-width="1.8"/><path d="M75.0,117 L75.0,110.0" stroke="#8a8984" stroke-width="1.8"/><path d="M79.2,110.0 L75.0,104 L70.8,110.0 z" fill="#8a8984"/><path d="M153.0,117 L153.0,110.0" stroke="#8a8984" stroke-width="1.8"/><path d="M157.2,110.0 L153.0,104 L148.8,110.0 z" fill="#8a8984"/><path d="M231.0,117 L231.0,110.0" stroke="#8a8984" stroke-width="1.8"/><path d="M235.2,110.0 L231.0,104 L226.8,110.0 z" fill="#8a8984"/><rect x="48" y="41" width="60" height="16" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="78.0" y="53.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="11">gate 1</text><path d="M78,41 L78.0,35.0" stroke="#8a8984" stroke-width="1.8"/><path d="M82.2,35.0 L78,29 L73.8,35.0 z" fill="#8a8984"/><rect x="198" y="41" width="60" height="16" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="228.0" y="53.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="11">gate N</text><path d="M228,41 L228.0,35.0" stroke="#8a8984" stroke-width="1.8"/><path d="M232.2,35.0 L228,29 L223.8,35.0 z" fill="#8a8984"/><text x="153" y="53" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="16" letter-spacing="2">···</text><rect x="40" y="72" width="70" height="32" rx="6" fill="#4A86C5"/><text x="75.0" y="85.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Expert 1</text><text x="75.0" y="98.0" text-anchor="middle" class="pd-s" fill="#fff">shared</text><rect x="118" y="72" width="70" height="32" rx="6" fill="#4A86C5"/><text x="153.0" y="85.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Expert 2</text><text x="153.0" y="98.0" text-anchor="middle" class="pd-s" fill="#fff">shared</text><rect x="196" y="72" width="70" height="32" rx="6" fill="#4A86C5"/><text x="231.0" y="85.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Expert 3</text><text x="231.0" y="98.0" text-anchor="middle" class="pd-s" fill="#fff">shared</text><path d="M75.0,72 L78,57" stroke="#8a8984" stroke-width="1.4"/><path d="M75.0,72 L228,57" stroke="#8a8984" stroke-width="1.4"/><path d="M153.0,72 L78,57" stroke="#8a8984" stroke-width="1.4"/><path d="M153.0,72 L228,57" stroke="#8a8984" stroke-width="1.4"/><path d="M231.0,72 L78,57" stroke="#8a8984" stroke-width="1.4"/><path d="M231.0,72 L228,57" stroke="#8a8984" stroke-width="1.4"/></g></svg></div><p>Each task mixes experts its own way · default</p></div>
+    <div class="mt-c"><h3>PLE <span class="pr-tag">stacked CGC layers</span></h3><div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 190" xmlns="http://www.w3.org/2000/svg"><rect x="30" y="3" width="96" height="25" rx="6" fill="#185FA5"/><text x="78.0" y="20.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Task 1 tower</text><rect x="180" y="3" width="96" height="25" rx="6" fill="#042C53"/><text x="228.0" y="20.0" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">Task N tower</text><text x="153" y="20" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="16" letter-spacing="2">···</text><rect x="50.0" y="36" width="56" height="15" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="78.0" y="48.0" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="10.5">gate 1</text><path d="M78,36 L78.0,34.0" stroke="#8a8984" stroke-width="1.8"/><path d="M82.2,34.0 L78,28 L73.8,34.0 z" fill="#8a8984"/><rect x="200.0" y="36" width="56" height="15" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="228.0" y="48.0" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="10.5">gate N</text><path d="M228,36 L228.0,34.0" stroke="#8a8984" stroke-width="1.8"/><path d="M232.2,34.0 L228,28 L223.8,34.0 z" fill="#8a8984"/><rect x="8" y="62" width="90" height="28" rx="6" fill="#185FA5"/><text x="53.0" y="73.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="12">Task 1</text><text x="53.0" y="86.0" text-anchor="middle" class="pd-s" fill="#fff">own</text><rect x="108" y="62" width="90" height="28" rx="6" fill="#4A86C5"/><text x="153.0" y="73.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="12">Shared</text><text x="153.0" y="86.0" text-anchor="middle" class="pd-s" fill="#fff">experts</text><rect x="208" y="62" width="90" height="28" rx="6" fill="#042C53"/><text x="253.0" y="73.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="12">Task N</text><text x="253.0" y="86.0" text-anchor="middle" class="pd-s" fill="#fff">own</text><path d="M53.0,62 L78,51" stroke="#8a8984" stroke-width="1.4"/><path d="M153.0,62 L78,51" stroke="#8a8984" stroke-width="1.4"/><path d="M153.0,62 L228,51" stroke="#8a8984" stroke-width="1.4"/><path d="M253.0,62 L228,51" stroke="#8a8984" stroke-width="1.4"/><rect x="27.0" y="101" width="52" height="15" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="53.0" y="113.0" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="10.5">gate 1</text><path d="M53.0,101 L53.0,96.0" stroke="#8a8984" stroke-width="1.8"/><path d="M57.2,96.0 L53.0,90 L48.8,96.0 z" fill="#8a8984"/><rect x="116.0" y="101" width="74" height="15" rx="6" fill="#fff" stroke="#4A86C5" stroke-width="1.5"/><text x="153.0" y="113.0" text-anchor="middle" class="pd-t" fill="#4A86C5" font-size="10.5">shared gate</text><path d="M153.0,101 L153.0,96.0" stroke="#8a8984" stroke-width="1.8"/><path d="M157.2,96.0 L153.0,90 L148.8,96.0 z" fill="#8a8984"/><rect x="227.0" y="101" width="52" height="15" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="253.0" y="113.0" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="10.5">gate N</text><path d="M253.0,101 L253.0,96.0" stroke="#8a8984" stroke-width="1.8"/><path d="M257.2,96.0 L253.0,90 L248.8,96.0 z" fill="#8a8984"/><rect x="8" y="127" width="90" height="28" rx="6" fill="#185FA5"/><text x="53.0" y="138.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="12">Task 1</text><text x="53.0" y="151.0" text-anchor="middle" class="pd-s" fill="#fff">own</text><rect x="108" y="127" width="90" height="28" rx="6" fill="#4A86C5"/><text x="153.0" y="138.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="12">Shared</text><text x="153.0" y="151.0" text-anchor="middle" class="pd-s" fill="#fff">experts</text><rect x="208" y="127" width="90" height="28" rx="6" fill="#042C53"/><text x="253.0" y="138.5" text-anchor="middle" class="pd-t" fill="#fff" font-size="12">Task N</text><text x="253.0" y="151.0" text-anchor="middle" class="pd-s" fill="#fff">own</text><path d="M53.0,127 L53.0,116" stroke="#8a8984" stroke-width="1.4"/><path d="M153.0,127 L53.0,116" stroke="#8a8984" stroke-width="1.4"/><path d="M53.0,127 L153.0,116" stroke="#8a8984" stroke-width="1.4"/><path d="M153.0,127 L153.0,116" stroke="#8a8984" stroke-width="1.4"/><path d="M253.0,127 L153.0,116" stroke="#8a8984" stroke-width="1.4"/><path d="M153.0,127 L253.0,116" stroke="#8a8984" stroke-width="1.4"/><path d="M253.0,127 L253.0,116" stroke="#8a8984" stroke-width="1.4"/><rect x="103" y="169" width="100" height="20" rx="6" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="153.0" y="183.5" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="12.5">Input</text><path d="M153,169 L153,162" stroke="#8a8984" stroke-width="1.8"/><path d="M53.0,162 L253.0,162" stroke="#8a8984" stroke-width="1.8"/><path d="M53.0,162 L53.0,161.0" stroke="#8a8984" stroke-width="1.8"/><path d="M57.2,161.0 L53.0,155 L48.8,161.0 z" fill="#8a8984"/><path d="M153.0,162 L153.0,161.0" stroke="#8a8984" stroke-width="1.8"/><path d="M157.2,161.0 L153.0,155 L148.8,161.0 z" fill="#8a8984"/><path d="M253.0,162 L253.0,161.0" stroke="#8a8984" stroke-width="1.8"/><path d="M257.2,161.0 L253.0,155 L248.8,161.0 z" fill="#8a8984"/></svg></div><p>Own + shared experts, stacked · no seesaw</p></div>
+  </div>
+  <div class="tip" style="margin-top:14px"><span class="lbl">Rule</span>More heads isn't always better. Train related targets together; split weakly related ones.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 9 · Prediction Server -->
+<section class="slide" data-layer="online">
+  <p class="eyebrow">① Online</p>
+  <div class="strip" aria-label="Position on the architecture map"><span>Gateway</span><i></i><span>Retrieval</span><i></i><span>Pre-ranking</span><i></i><span class="cur">Ranking</span><i></i><span>Rerank</span><i></i><span>Response</span></div>
+  <h2>Ranking <span class="sep">·</span> Prediction Server</h2>
+  <div class="ps">
+    <div class="ps-eng"><b>Realtime engine</b><span>candidates + features</span></div>
+    <div class="ps-arr"></div>
+    <div class="ps-srv">
+      <b class="rk-mt">Prediction Server <small>stateless</small></b>
+      <div class="ps-row">
+        <div>API layer</div><i></i><div>Feature processor</div><i></i><div>Inference engine</div><i></i><div>Result processor</div>
+      </div>
+      <div class="ps-row2">
+        <span>route by model + version</span><span>to tensors · defaults · checks</span><span>ONNX Runtime · batching</span><span>calibration</span>
+      </div>
+      <div class="ps-mm"><div>Model manager</div><em>← hot update ←</em><span class="ps-reg">Model registry</span></div>
+    </div>
+    <div class="ps-arr"></div>
+    <div class="ps-eng"><b>Realtime engine</b><span>predictions + feature log</span></div>
+  </div>
+  <div class="grid g3 ps-cards" style="gap:16px;margin-top:18px">
+    <div class="card"><span class="tag">throughput</span><h3>Batching</h3><div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 118" xmlns="http://www.w3.org/2000/svg"><text x="4" y="24" text-anchor="start" class="pd-m" fill="#6b7385" font-size="10">req 1</text><rect x="40" y="14" width="10" height="10" rx="2" fill="#185FA5"/><rect x="53" y="14" width="10" height="10" rx="2" fill="#185FA5"/><rect x="66" y="14" width="10" height="10" rx="2" fill="#185FA5"/><rect x="79" y="14" width="10" height="10" rx="2" fill="#185FA5"/><rect x="92" y="14" width="10" height="10" rx="2" fill="#185FA5"/><path d="M107,19 L148,40" stroke="#8a8984" stroke-width="1.2" fill="none"/><text x="4" y="54" text-anchor="start" class="pd-m" fill="#6b7385" font-size="10">req 2</text><rect x="40" y="44" width="10" height="10" rx="2" fill="#4A86C5"/><rect x="53" y="44" width="10" height="10" rx="2" fill="#4A86C5"/><rect x="66" y="44" width="10" height="10" rx="2" fill="#4A86C5"/><path d="M81,49 L148,40" stroke="#8a8984" stroke-width="1.2" fill="none"/><text x="4" y="84" text-anchor="start" class="pd-m" fill="#6b7385" font-size="10">req 3</text><rect x="40" y="74" width="10" height="10" rx="2" fill="#042C53"/><rect x="53" y="74" width="10" height="10" rx="2" fill="#042C53"/><rect x="66" y="74" width="10" height="10" rx="2" fill="#042C53"/><rect x="79" y="74" width="10" height="10" rx="2" fill="#042C53"/><path d="M94,79 L148,40" stroke="#8a8984" stroke-width="1.2" fill="none"/><rect x="150" y="8" width="82" height="66" rx="7" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><rect x="158.0" y="16.0" width="11" height="11" rx="2" fill="#185FA5"/><rect x="172.5" y="16.0" width="11" height="11" rx="2" fill="#185FA5"/><rect x="187.0" y="16.0" width="11" height="11" rx="2" fill="#185FA5"/><rect x="201.5" y="16.0" width="11" height="11" rx="2" fill="#185FA5"/><rect x="216.0" y="16.0" width="11" height="11" rx="2" fill="#185FA5"/><rect x="158.0" y="30.5" width="11" height="11" rx="2" fill="#4A86C5"/><rect x="172.5" y="30.5" width="11" height="11" rx="2" fill="#4A86C5"/><rect x="187.0" y="30.5" width="11" height="11" rx="2" fill="#4A86C5"/><rect x="201.5" y="30.5" width="11" height="11" rx="2" fill="#042C53"/><rect x="216.0" y="30.5" width="11" height="11" rx="2" fill="#042C53"/><rect x="158.0" y="45.0" width="11" height="11" rx="2" fill="#042C53"/><rect x="172.5" y="45.0" width="11" height="11" rx="2" fill="#042C53"/><text x="191" y="68" text-anchor="middle" class="pd-s" fill="#185FA5" font-size="10">one batch</text><path d="M232,41 L244.0,41.0" stroke="#8a8984" stroke-width="1.8"/><path d="M244.0,45.2 L250,41 L244.0,36.8 z" fill="#8a8984"/><rect x="252" y="24" width="48" height="34" rx="6" fill="#042C53"/><text x="276" y="45" text-anchor="middle" class="pd-t" fill="#fff" font-size="13">GPU</text><text x="153" y="112" text-anchor="middle" class="pd-s" fill="#6b7385" font-size="10.5">bigger batch → more throughput, higher P99</text></svg></div><p class="ps-cap">All candidates in one batch, across requests too</p></div>
+    <div class="card"><span class="tag">release</span><h3>Hot update</h3><div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 118" xmlns="http://www.w3.org/2000/svg"><text x="4" y="30" text-anchor="start" class="pd-m" fill="#6b7385" font-size="11">v1</text><text x="4" y="64" text-anchor="start" class="pd-m" fill="#6b7385" font-size="11">v2</text><rect x="24" y="18" width="176" height="18" rx="4" fill="#185FA5"/><text x="112" y="31" text-anchor="middle" class="pd-t" fill="#fff" font-size="11">serving</text><rect x="200" y="18" width="40" height="18" rx="4" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.5" stroke-dasharray="3 2"/><text x="220" y="31" text-anchor="middle" class="pd-s" fill="#185FA5" font-size="9.5">drain</text><rect x="60" y="52" width="52" height="18" rx="4" fill="#fff" stroke="#8a8984" stroke-width="1.5" stroke-dasharray="3 2"/><text x="86" y="65" text-anchor="middle" class="pd-s" fill="#6b7385" font-size="10">load</text><rect x="114" y="52" width="84" height="18" rx="4" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.5"/><text x="156" y="65" text-anchor="middle" class="pd-s" fill="#185FA5" font-size="10">warm up</text><rect x="200" y="52" width="100" height="18" rx="4" fill="#042C53"/><text x="250" y="65" text-anchor="middle" class="pd-t" fill="#fff" font-size="11">serving</text><path d="M200,8 L200,80" stroke="#B8325A" stroke-width="1.6" stroke-dasharray="4 3"/><text x="200" y="90" text-anchor="middle" class="pd-s" fill="#B8325A" font-size="10">atomic switch</text><rect x="36" y="98" width="64" height="18" rx="9" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="68" y="111" text-anchor="middle" class="pd-s" fill="#185FA5" font-size="10.5">shadow</text><path d="M102,107 L116.0,107.0" stroke="#8a8984" stroke-width="1.8"/><path d="M116.0,111.2 L122,107 L116.0,102.8 z" fill="#8a8984"/><rect x="124" y="98" width="64" height="18" rx="9" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="156" y="111" text-anchor="middle" class="pd-s" fill="#185FA5" font-size="10.5">A/B</text><path d="M190,107 L204.0,107.0" stroke="#8a8984" stroke-width="1.8"/><path d="M204.0,111.2 L210,107 L204.0,102.8 z" fill="#8a8984"/><rect x="212" y="98" width="64" height="18" rx="9" fill="#fff" stroke="#185FA5" stroke-width="1.5"/><text x="244" y="111" text-anchor="middle" class="pd-s" fill="#185FA5" font-size="10.5">ramp up</text></svg></div><p class="ps-cap">Old and new both in memory during the switch</p></div>
+    <div class="card"><span class="tag">resilience</span><h3>Degrade, don't fail</h3><div class="pr-dia"><svg class="pr-svg" viewBox="0 0 306 118" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="4" width="150" height="22" rx="5" fill="#185FA5"/><text x="81" y="19" text-anchor="middle" class="pd-t" fill="#fff" font-size="11.5">Full model</text><path d="M158,15 C172,15 174,18 174,25" stroke="#8a8984" stroke-width="1.5" fill="none"/><path d="M170,25 L174,31 L178,25 z" fill="#8a8984"/><rect x="50" y="31" width="150" height="22" rx="5" fill="#4A86C5"/><text x="125" y="46" text-anchor="middle" class="pd-t" fill="#fff" font-size="11.5">Light model</text><path d="M202,42 C216,42 218,45 218,52" stroke="#8a8984" stroke-width="1.5" fill="none"/><path d="M214,52 L218,58 L222,52 z" fill="#8a8984"/><rect x="94" y="58" width="150" height="22" rx="5" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.5"/><text x="169" y="73" text-anchor="middle" class="pd-t" fill="#185FA5" font-size="11.5">Retrieval scores</text><path d="M246,69 C260,69 262,72 262,79" stroke="#8a8984" stroke-width="1.5" fill="none"/><path d="M258,79 L262,85 L266,79 z" fill="#8a8984"/><rect x="138" y="85" width="150" height="22" rx="5" fill="#EEF0F3" stroke="#c9ced6" stroke-width="1.5"/><text x="213" y="100" text-anchor="middle" class="pd-t" fill="#6b7385" font-size="11.5">Popular list</text><text x="6" y="96" text-anchor="start" class="pd-s" fill="#6b7385" font-size="10">timeout or breaker</text><text x="6" y="109" text-anchor="start" class="pd-s" fill="#6b7385" font-size="10">→ next step down</text></svg></div><p class="ps-cap">Users always see something</p></div>
+  </div>
+  <div class="tip" style="margin-top:14px"><span class="lbl">Boundary</span>The server returns <b>predictions</b>; the business <b>objective</b> is computed in Rerank.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 10 · Rerank -->
+<section class="slide" data-layer="online">
+  <p class="eyebrow">① Online</p>
+  <div class="strip" aria-label="Position on the architecture map"><span>Gateway</span><i></i><span>Retrieval</span><i></i><span>Pre-ranking</span><i></i><span>Ranking</span><i></i><span class="cur">Rerank</span><i></i><span>Response</span></div>
+  <h2>Rerank <span class="sep">·</span> from scores to a list</h2>
+  <div class="pr-io"><span>Ranking scores each item</span><em>→</em><b>Rerank</b><em>→</em><span>builds the whole list</span></div>
+  <div class="rr">
+    <div class="rr-s"><i>0</i><b>Fuse</b><span>predictions → one score</span></div><em></em>
+    <div class="rr-s hard"><i>1</i><b>Filter &amp; dedup</b><span>seen · blocked · dupes</span><u>hard</u></div><em></em>
+    <div class="rr-s hard"><i>2</i><b>Blend &amp; quota</b><span>formats · quality tiers</span><u>hard</u></div><em></em>
+    <div class="rr-s soft"><i>3</i><b>Diversity</b><span>DPP · max volume</span><u>soft</u></div><em></em>
+    <div class="rr-s ops"><i>4</i><b>Intervention</b><span>pin · boosted slots</span><u>ops</u></div><em></em>
+    <div class="rr-s hard"><i>5</i><b>Validate &amp; repair</b><span>recheck every hard rule</span><u>hard</u></div>
+  </div>
+  <div class="card dv-card" style="margin-top:20px">
+    <h3>Diversity · DPP, maximise the volume</h3>
+    <div class="dv-grid">
+      <svg class="dv-svg" viewBox="0 0 640 236" width="640" height="236" xmlns="http://www.w3.org/2000/svg"><defs><marker id="dv-185FA5" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#185FA5"/></marker><marker id="dv-B7791F" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#B7791F"/></marker></defs><text x="20" y="16" class="dv-l">SIMILAR PICKS</text><path d="M26,200 L172.7,168.8 L296.3,103.1 L149.6,134.3 Z" fill="#B8325A" fill-opacity="0.18" stroke="#B8325A" stroke-opacity=".5" stroke-dasharray="3 3"/><path d="M26,200 L172.7,168.8" stroke="#185FA5" stroke-width="3.5" marker-end="url(#dv-185FA5)"/><path d="M26,200 L149.6,134.3" stroke="#185FA5" stroke-width="3.5" marker-end="url(#dv-185FA5)"/><circle cx="26" cy="200" r="3.5" fill="#141A2B"/><text x="181.7" y="173.8" class="dv-v" fill="#185FA5">A1</text><text x="143.6" y="125.3" class="dv-v" fill="#185FA5">A2</text><text x="160" y="226" text-anchor="middle" class="dv-w">small area</text><text x="340" y="16" class="dv-l">DIVERSE PICKS</text><path d="M346.0,200.0 L509.4,177.0 L550.2,51.5 L386.8,74.5 Z" fill="#B8325A" fill-opacity="0.22" stroke="#B8325A" stroke-opacity=".5" stroke-dasharray="3 3"/><path d="M346.0,200.0 L509.4,177.0" stroke="#185FA5" stroke-width="3.5" marker-end="url(#dv-185FA5)"/><path d="M346.0,200.0 L386.8,74.5" stroke="#B7791F" stroke-width="3.5" marker-end="url(#dv-B7791F)"/><circle cx="346" cy="200" r="3.5" fill="#141A2B"/><text x="518.4" y="182.0" class="dv-v" fill="#185FA5">A1</text><text x="380.8" y="65.5" class="dv-v" fill="#B7791F">B1</text><text x="480" y="140" text-anchor="middle" class="dv-w">large area</text><path d="M318,34 L318,212" stroke="#E4E7EC" stroke-width="1"/></svg>
+      <div class="dv-side">
+        <div class="dv-pt"><b>Length</b><span>Ranking score · how relevant the video is</span></div>
+        <div class="dv-pt"><b>Direction</b><span>normalised embedding · angle = how different</span></div>
+        <div class="dv-pt"><b>Greedy pick</b><span>add the video that grows the area most · 3 videos → volume</span></div>
+        <div class="rr-dims" style="margin-top:4px"><em class="dv-k">direction</em><span>embedding</span><span>category</span><span>creator</span><span>keywords</span></div>
+        <div class="dv-knobs"><span><b>Trade-off</b> quality vs diversity · more diverse for new users</span><span><b>Window</b> last K picks</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="tip" style="margin-top:16px"><span class="lbl">Rule</span>Hard rules and ops pins always win over soft goals like diversity.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 11 · Offline overview -->
+<section class="slide" data-layer="offline">
+  <p class="eyebrow">② Offline</p>
+  <div class="strip" aria-label="Position on the architecture map"><span class="cur">Data lake</span><i></i><span class="cur">ETL</span><i></i><span class="cur">Features &amp; labels</span><i></i><span class="cur">Training</span><i></i><span class="cur">Embeddings</span></div>
+  <h2>Offline <span class="sep">·</span> the factory behind the feed</h2>
+  <div style="margin-top:6px"><svg class="od-svg" viewBox="0 0 1152 350" width="1152" height="350" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="oa" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6b7385"/></marker></defs>
+<text x="0" y="12" class="cap">SOURCES</text>
+<text x="180" y="12" class="cap">INGEST</text>
+<text x="440" y="12" class="cap">PIPELINES</text>
+<text x="912" y="12" class="cap">STORAGE · ONLINE READS</text>
+<rect x="0" y="46" width="140" height="56" rx="8" fill="#C2502A" stroke="#C2502A" stroke-width="1.5"/><text x="12" y="71.0" class="nt" fill="#fff">User feedback</text><text x="12" y="88.0" class="ns" fill="rgba(255,255,255,.85)">clicks · watch time</text>
+<rect x="0" y="282" width="140" height="56" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="12" y="307.0" class="nt" fill="#141A2B">Creator uploads</text><text x="12" y="324.0" class="ns" fill="#5b6478">upload · transcode</text>
+<rect x="180" y="26" width="210" height="44" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="192" y="45.0" class="nt" fill="#141A2B">Message queue</text><text x="192" y="62.0" class="ns" fill="#5b6478">via gateway</text>
+<rect x="180" y="86" width="210" height="44" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="192" y="113.0" class="nt" fill="#141A2B">Raw logs</text>
+<rect x="180" y="146" width="210" height="44" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="192" y="165.0" class="nt" fill="#141A2B">Event processing</text><text x="192" y="182.0" class="ns" fill="#5b6478">clean · join · dedupe</text>
+<rect x="180" y="206" width="210" height="44" rx="8" fill="#0F6E56" stroke="#0F6E56" stroke-width="1.5"/><text x="192" y="225.0" class="nt" fill="#fff">Data warehouse</text><text x="192" y="242.0" class="ns" fill="rgba(255,255,255,.85)">every event · tens of TB</text>
+<rect x="180" y="282" width="210" height="56" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="192" y="307.0" class="nt" fill="#141A2B">Content pool</text><text x="192" y="324.0" class="ns" fill="#5b6478">videos · metadata</text>
+<path d="M140,74 L160,74 L160,48 L178,48" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<path d="M285.0,70 L285.0,84" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<path d="M285.0,130 L285.0,144" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<path d="M285.0,190 L285.0,204" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<path d="M140,310 L178,310" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<rect x="440" y="26" width="420" height="246" rx="10" fill="#F1F8F5" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="848" y="264" class="bl" fill="#0F6E56" text-anchor="end">Batch pipelines · daily</text>
+<rect x="454" y="46" width="190" height="56" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="466" y="71.0" class="nt" fill="#141A2B">Feature pipeline</text><text x="466" y="88.0" class="ns" fill="#5b6478">long-term</text>
+<rect x="656" y="46" width="190" height="56" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="668" y="71.0" class="nt" fill="#141A2B">User profile pipeline</text><text x="668" y="88.0" class="ns" fill="#5b6478">long-term</text>
+<rect x="454" y="190" width="190" height="56" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="466" y="223.0" class="nt" fill="#141A2B">Sample generating</text>
+<rect x="656" y="190" width="190" height="56" rx="8" fill="#0F6E56" stroke="#0F6E56" stroke-width="1.5"/><text x="668" y="223.0" class="nt" fill="#fff">Model training</text>
+<path d="M644,218 L654,218" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<path d="M549,102 L549,188" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/><text x="558" y="142" class="el">features</text><text x="558" y="156" class="el">+ labels</text>
+<path d="M390,218 L438,218" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<rect x="440" y="282" width="420" height="56" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/><text x="452" y="307.0" class="nt" fill="#141A2B">Content processing pipeline</text><text x="452" y="324.0" class="ns" fill="#5b6478">tags · quality · embeddings</text>
+<path d="M394,310 L436,310" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)" marker-start="url(#oa)"/>
+<rect x="912" y="36" width="240" height="56" rx="8" fill="#B7791F" stroke="#B7791F" stroke-width="1.5"/><text x="924" y="61.0" class="nt" fill="#fff">Feature server</text><text x="924" y="78.0" class="ns" fill="rgba(255,255,255,.85)">features · user profiles</text>
+<rect x="912" y="144" width="240" height="56" rx="8" fill="#B7791F" stroke="#B7791F" stroke-width="1.5"/><text x="924" y="169.0" class="nt" fill="#fff">Vector index</text><text x="924" y="186.0" class="ns" fill="rgba(255,255,255,.85)">video &amp; user embeddings</text>
+<rect x="912" y="252" width="240" height="56" rx="8" fill="#B7791F" stroke="#B7791F" stroke-width="1.5"/><text x="924" y="277.0" class="nt" fill="#fff">Model registry</text><text x="924" y="294.0" class="ns" fill="rgba(255,255,255,.85)">versions · configs</text>
+<path d="M884,64 L884,310" stroke="#6b7385" stroke-width="2"/>
+<path d="M860,180 L884,180" stroke="#6b7385" stroke-width="1.5"/>
+<path d="M860,310 L884,310" stroke="#6b7385" stroke-width="1.5"/>
+<path d="M884,64 L910,64" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<path d="M884,172 L910,172" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<path d="M884,280 L910,280" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#oa)"/>
+<text x="890" y="112" class="el">via</text><text x="890" y="126" class="el">Feeder</text><text x="890" y="232" class="el">publish</text>
+</svg></div>
+  <div class="grid g3" style="gap:16px;margin-top:16px">
+    <div class="card" style="padding:12px 18px"><span class="tag">freshness</span><p class="small"><b>Batch daily</b> → long-term interest<br><b>NRT minutes</b> → trends, short-term</p></div>
+    <div class="card" style="padding:12px 18px"><span class="tag">consistency</span><p class="small"><b>Point-in-time</b> features from the feature log<br>Never backfill from today's server</p></div>
+    <div class="card" style="padding:12px 18px"><span class="tag">versions</span><p class="small"><b>Compatible</b> query tower · vectors · index<br>Snapshot data so any run can replay</p></div>
+  </div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 12 · Data & features -->
+<section class="slide" data-layer="offline">
+  <p class="eyebrow">② Offline</p>
+  <div class="strip" aria-label="Position on the architecture map"><span>Data lake</span><i></i><span>ETL</span><i></i><span class="cur">Features &amp; labels</span><i></i><span class="cur">Training</span><i></i><span>Embeddings</span></div>
+  <h2>From logged feedback <span class="sep">·</span> to a validated model</h2>
+  <div style="margin-top:8px"><svg class="od-svg" viewBox="0 0 1152 372" width="1152" height="372" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="fa" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6b7385"/></marker></defs>
+<text x="0" y="12" class="cap">FEATURES · SNAPSHOT AT t₀</text>
+<text x="800" y="12" class="cap">ONE TRAINING ROW</text>
+<rect x="0" y="28" width="250" height="38" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="12" y="52" class="nt" fill="#141A2B">User profile</text>
+<path d="M250,47 L272,47" stroke="#6b7385" stroke-width="1.5"/>
+<rect x="0" y="72" width="250" height="38" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="12" y="96" class="nt" fill="#141A2B">Content understanding</text>
+<path d="M250,91 L272,91" stroke="#6b7385" stroke-width="1.5"/>
+<rect x="0" y="116" width="250" height="38" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="12" y="140" class="nt" fill="#141A2B">Behaviour sequence</text>
+<path d="M250,135 L272,135" stroke="#6b7385" stroke-width="1.5"/>
+<rect x="0" y="160" width="250" height="38" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/>
+<text x="12" y="184" class="nt" fill="#141A2B">Real-time</text>
+<path d="M250,179 L272,179" stroke="#6b7385" stroke-width="1.5"/>
+<rect x="0" y="204" width="250" height="38" rx="8" fill="#fff" stroke="#8a8984" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="12" y="228" class="nt" fill="#141A2B">Context + position</text>
+<path d="M250,223 L272,223" stroke="#6b7385" stroke-width="1.5"/>
+<path d="M272,47 L272,223" stroke="#6b7385" stroke-width="2"/>
+<path d="M272,135 L354,135" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#fa)"/>
+<text x="282" y="127" class="el">as of t₀</text>
+<rect x="366" y="84" width="330" height="72" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="366" y="76" class="cap">LABEL WINDOW</text>
+<path d="M360,135 L796,135" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#fa)"/>
+<path d="M360,113 L360,157" stroke="#141A2B" stroke-width="2.5"/>
+<path d="M700,113 L700,157" stroke="#141A2B" stroke-width="2.5"/>
+<circle cx="412" cy="135" r="5" fill="#0F6E56"/><text x="412" y="120" class="nc" fill="#141A2B" text-anchor="middle">click</text>
+<circle cx="492" cy="135" r="5" fill="#0F6E56"/><text x="492" y="120" class="nc" fill="#141A2B" text-anchor="middle">watch 63%</text>
+<circle cx="578" cy="135" r="5" fill="#0F6E56"/><text x="578" y="120" class="nc" fill="#141A2B" text-anchor="middle">like</text>
+<circle cx="650" cy="135" r="5" fill="#0F6E56"/><text x="650" y="120" class="nc" fill="#141A2B" text-anchor="middle">share</text>
+<text x="360" y="176" class="nc" fill="#141A2B">t₀ · impression</text><text x="360" y="192" class="el">shown at position 3</text>
+<text x="700" y="176" class="nc" fill="#141A2B" text-anchor="middle">labels close</text>
+<text x="366" y="216" class="el">valid impression + window · unshown ≠ negative</text>
+<text x="366" y="232" class="el">fast skip → negative · late events → next window</text>
+<rect x="800" y="28" width="352" height="214" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/>
+<path d="M808,28 H1144 A8,8 0 0 1 1152,36 V74 H800 V36 A8,8 0 0 1 808,28 Z" fill="#0F6E56"/>
+<text x="814" y="48" class="nt" fill="#fff">Multi-task sample</text><text x="814" y="65" class="ns" fill="rgba(255,255,255,.85)">one row per valid impression</text>
+<text x="814" y="94" class="cap">FEATURES</text>
+<rect x="814" y="102" width="76" height="30" rx="6" fill="#fff" stroke="#0F6E56" stroke-width="1.2"/><text x="852" y="122" class="nc" fill="#141A2B" text-anchor="middle">user</text>
+<rect x="896" y="102" width="76" height="30" rx="6" fill="#fff" stroke="#0F6E56" stroke-width="1.2"/><text x="934" y="122" class="nc" fill="#141A2B" text-anchor="middle">item</text>
+<rect x="978" y="102" width="76" height="30" rx="6" fill="#fff" stroke="#0F6E56" stroke-width="1.2"/><text x="1016" y="122" class="nc" fill="#141A2B" text-anchor="middle">context</text>
+<rect x="1060" y="102" width="76" height="30" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.2" stroke-dasharray="4 3"/><text x="1098" y="122" class="nc" fill="#141A2B" text-anchor="middle">position</text>
+<text x="814" y="154" class="cap">LABELS · ONE PER HEAD</text>
+<rect x="814" y="162" width="76" height="42" rx="6" fill="#0F6E56"/><text x="852" y="178" class="ns" fill="rgba(255,255,255,.85)" text-anchor="middle">click</text><text x="852" y="196" class="nt" fill="#fff" text-anchor="middle">1</text>
+<rect x="896" y="162" width="76" height="42" rx="6" fill="#0F6E56"/><text x="934" y="178" class="ns" fill="rgba(255,255,255,.85)" text-anchor="middle">watch</text><text x="934" y="196" class="nt" fill="#fff" text-anchor="middle">0.63</text>
+<rect x="978" y="162" width="76" height="42" rx="6" fill="#0F6E56"/><text x="1016" y="178" class="ns" fill="rgba(255,255,255,.85)" text-anchor="middle">like</text><text x="1016" y="196" class="nt" fill="#fff" text-anchor="middle">1</text>
+<rect x="1060" y="162" width="76" height="42" rx="6" fill="#0F6E56"/><text x="1098" y="178" class="ns" fill="rgba(255,255,255,.85)" text-anchor="middle">skip</text><text x="1098" y="196" class="nt" fill="#fff" text-anchor="middle">0</text>
+<text x="814" y="228" class="el">downsample negatives → recalibrate scores</text>
+<text x="0" y="276" class="cap">TRAIN / EVAL · SPLIT BY TIME · SHUFFLE ONLY INSIDE TRAIN</text>
+<rect x="0" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="48" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="96" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="144" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="192" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="240" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="288" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="336" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="384" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="432" y="290" width="44" height="40" rx="5" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.2"/>
+<rect x="490" y="290" width="60" height="40" rx="5" fill="#0F6E56"/><text x="520" y="315" class="nc" fill="#fff" text-anchor="middle">D</text>
+<text x="22" y="348" class="el" text-anchor="middle">D-30</text><text x="454" y="348" class="el" text-anchor="middle">D-1</text><text x="520" y="348" class="el" text-anchor="middle">holdout</text>
+<text x="0" y="366" class="nc" fill="#141A2B">train daily · warm-start from yesterday's model</text>
+<path d="M552,310 L598,310" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#fa)"/>
+<rect x="600" y="286" width="230" height="48" rx="8" fill="#E3F4EE" stroke="#0F6E56" stroke-width="1.5"/>
+<text x="612" y="307.0" class="nt" fill="#141A2B">Offline gates</text><text x="612" y="323.0" class="ns" fill="#5b6478">per task · calibration · segments</text>
+<path d="M830,310 L854,310" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#fa)"/>
+<rect x="856" y="286" width="134" height="48" rx="8" fill="#FBF1DF" stroke="#B7791F" stroke-width="1.5"/>
+<text x="868" y="307.0" class="nt" fill="#141A2B">Registry</text><text x="868" y="323.0" class="ns" fill="#5b6478">+ data snapshot</text>
+<path d="M990,310 L1014,310" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#fa)"/>
+<rect x="1016" y="286" width="136" height="48" rx="8" fill="#B8325A" stroke="#B8325A" stroke-width="1.5"/>
+<text x="1028" y="307.0" class="nt" fill="#fff">Online A/B</text><text x="1028" y="323.0" class="ns" fill="rgba(255,255,255,.85)">the real decision</text>
+<text x="600" y="352" class="el">click, like: AUC · log loss   ·   watch time: MAE</text><text x="600" y="366" class="el">new users · new videos · long tail</text>
+</svg></div>
+  <div class="grid g2" style="gap:18px;margin-top:14px">
+    <div class="case"><span class="lbl">Train</span>Click, like → <b>classification</b> · watch time → <b>regression</b> · weighted task losses · <b>mask</b> missing labels</div>
+    <div class="tip" style="display:flex;align-items:center"><span><span class="lbl">Watch for</span>Offline AUC up, online watch time down: check labels, skew, calibration.</span></div>
+  </div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 16 · Nearline overview -->
+<!-- 14 · Nearline · fresh features -->
+<section class="slide" data-layer="nearline">
+  <p class="eyebrow">③ Nearline</p>
+  <div class="strip" aria-label="Position on the architecture map"><span class="cur">Event stream</span><i></i><span class="cur">Real-time features</span><i></i><span class="cur">Session interest</span><i></i><span class="cur">Online learning</span></div>
+  <h2>Nearline <span class="sep">·</span> fresh features, then fresh models</h2>
+  <div style="margin-top:6px"><svg class="od-svg" viewBox="0 0 1152 176" width="1152" height="176" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="nc16" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6b7385"/></marker></defs>
+<text x="0" y="26" class="lb" fill="#534AB7" text-anchor="start">Feature clock</text><text x="0" y="44" class="ns" fill="#5b6478" text-anchor="start">inputs change</text>
+<text x="0" y="144" class="lb" fill="#534AB7" text-anchor="start">Model clock</text><text x="0" y="162" class="ns" fill="#5b6478" text-anchor="start">optional · costlier</text>
+<rect x="150" y="0" width="170" height="58" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/><text x="162" y="26.0" class="nt" fill="#141A2B" text-anchor="start">Event stream</text><text x="162" y="43.0" class="ns" fill="#5b6478" text-anchor="start">Kafka · user events</text>
+<rect x="360" y="0" width="200" height="58" rx="8" fill="#534AB7" stroke="#534AB7" stroke-width="1.5"/><text x="372" y="26.0" class="nt" fill="#fff" text-anchor="start">Flink job</text><text x="372" y="43.0" class="ns" fill="rgba(255,255,255,.85)" text-anchor="start">user state · item windows</text>
+<rect x="600" y="0" width="210" height="58" rx="8" fill="#FBF1DF" stroke="#B7791F" stroke-width="1.5"/><text x="612" y="26.0" class="nt" fill="#141A2B" text-anchor="start">Feature server · Redis</text><text x="612" y="43.0" class="ns" fill="#5b6478" text-anchor="start">realtime + batch via Feeder</text>
+<rect x="850" y="0" width="300" height="58" rx="8" fill="#185FA5" stroke="#185FA5" stroke-width="1.5"/><text x="862" y="26.0" class="nt" fill="#fff" text-anchor="start">Serving · same model</text><text x="862" y="43.0" class="ns" fill="rgba(255,255,255,.85)" text-anchor="start">reads new inputs</text>
+<path d="M320,29 L358,29" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#nc16)"/>
+<path d="M560,29 L598,29" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#nc16)"/>
+<path d="M810,29 L848,29" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#nc16)"/>
+<rect x="150" y="118" width="170" height="58" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/><text x="162" y="144.0" class="nt" fill="#141A2B" text-anchor="start">Join</text><text x="162" y="161.0" class="ns" fill="#5b6478" text-anchor="start">feature log + feedback</text>
+<rect x="360" y="118" width="200" height="58" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/><text x="372" y="144.0" class="nt" fill="#141A2B" text-anchor="start">Samples</text><text x="372" y="161.0" class="ns" fill="#5b6478" text-anchor="start">wait for the label window</text>
+<rect x="600" y="118" width="210" height="58" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.5"/><text x="612" y="144.0" class="nt" fill="#141A2B" text-anchor="start">Incremental train</text><text x="612" y="161.0" class="ns" fill="#5b6478" text-anchor="start">on top of the full model</text>
+<rect x="850" y="118" width="300" height="58" rx="8" fill="#185FA5" stroke="#185FA5" stroke-width="1.5"/><text x="862" y="144.0" class="nt" fill="#fff" text-anchor="start">Serving · new parameters</text><text x="862" y="161.0" class="ns" fill="rgba(255,255,255,.85)" text-anchor="start">validate → registry → hot load</text>
+<path d="M320,147 L358,147" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#nc16)"/>
+<path d="M560,147 L598,147" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#nc16)"/>
+<path d="M810,147 L848,147" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#nc16)"/>
+<path d="M235,58 L235,116" fill="none" stroke="#6b7385" stroke-width="1.5" marker-end="url(#nc16)"/>
+</svg></div>
+  <div class="grid g3" style="gap:16px;margin-top:22px">
+    <div class="card" style="padding:12px 18px"><span class="tag">feature clock · computes</span><div class="kws lt" style="margin-top:4px"><span>recent watches</span><span>session interest</span><span>item heat · CTR</span><span>suppression</span></div></div>
+    <div class="card" style="padding:12px 18px"><span class="tag">feature clock · keep it correct</span><p class="small">Window by when it happened<br>Count each event once<br>Add counts, not CTRs</p></div>
+    <div class="card" style="padding:12px 18px"><span class="tag">model clock · risks</span><p class="small">Wait for the label<br>Full retrain as a reset<br>Train off the serving path</p></div>
+  </div>
+  <div class="tip" style="margin-top:18px"><span class="lbl">Rule</span>Fresh features first: cheaper, and the model can stay the same.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 19 · Storage one-pager -->
+<section class="slide" data-layer="storage">
+  <p class="eyebrow">④ Storage</p>
+  <div class="strip" aria-label="Position on the architecture map"><span class="cur">Feature server</span><span class="cur">Vector index</span><span class="cur">Model registry</span></div>
+  <h2>Storage <span class="sep">·</span> the contract between layers</h2>
+  <div class="grid" style="grid-template-columns:150px 24px 140px 24px 1fr 24px 190px;align-items:center;margin-top:6px">
+    <div class="col">
+      <div class="nd c-off"><b>Offline</b><span>daily batch</span></div>
+      <div class="nd c-nl"><b>Nearline</b><span>minutes</span></div>
+    </div>
+    <div class="chain" style="height:100%"><em></em></div>
+    <div class="nd lt" style="height:150px"><b>Feeder</b><span>validate · version · atomic switch · rollback</span></div>
+    <div class="chain" style="height:100%"><em></em></div>
+    <div class="col">
+      <div class="nd"><b>Feature server</b><span>online feature store · user · item · cross · context</span></div>
+      <div class="nd"><b>Vector index</b><span>item vectors for ANN</span></div>
+      <div class="nd"><b>Model registry</b><span>model + feature list + version</span></div>
+    </div>
+    <div class="chain" style="height:100%"><em></em></div>
+    <div class="col">
+      <p class="mono xs" style="color:var(--on);letter-spacing:.08em;text-transform:uppercase;margin:0 0 -2px">Online · only reads</p>
+      <div class="nd c-on"><b>Retrieval</b></div>
+      <div class="nd c-on"><b>Pre-ranking · Ranking</b></div>
+      <div class="nd c-on"><b>Rerank</b></div>
+    </div>
+  </div>
+  <div class="grid g3" style="gap:16px;margin-top:26px">
+    <div class="card"><span class="tag">consistency</span><h3>One feature, one definition</h3><div class="ofd"><span class="ofd-def">clicks_7d<i>rolling 7×24h</i></span><span class="ofd-ar">→</span><span class="ofd-out"><b class="o1">Offline backfill</b><b class="o2">Online compute</b></span></div></div>
+    <div class="card"><span class="tag">versions</span><h3>Switch together</h3><p class="small">Model + feature list + vector index · one release, one rollback</p><p class="xs muted" style="margin-top:8px">Mismatch → no error, quiet decay</p></div>
+    <div class="card"><span class="tag">latency</span><h3>Caches in front</h3><p class="small">L1 per-user results · L2 shared recall</p></div>
+  </div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- 20 · Experiments -->
+<section class="slide">
+  <p class="eyebrow" style="background:#B8325A">Evaluation</p>
+  <h2>Multi-layer experiments <span class="sep">·</span> teams test in parallel</h2>
+  <div class="xp2">
+    <div class="xp2-l">
+      <div class="xp-launch"><b>Launch layers</b><span>shipped baseline</span><em>every request passes first, then a domain</em></div>
+      <svg class="xp-svg" viewBox="0 0 706 286" width="706" height="286" xmlns="http://www.w3.org/2000/svg">
+<defs><pattern id="hz" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#F1F3F6"/><rect width="3" height="8" fill="#E2E6EC"/></pattern><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6b7385"/></marker></defs>
+<rect x="100" y="0" width="334" height="284" rx="10" fill="#E6F1FB" stroke="#A9CBEF" stroke-width="1.5"/>
+<rect x="444" y="0" width="82" height="284" rx="10" fill="#EEF0F4" stroke="#C9CFD9" stroke-width="1.5"/>
+<rect x="534" y="0" width="82" height="284" rx="10" fill="#EEF0F4" stroke="#C9CFD9" stroke-width="1.5"/>
+<rect x="624" y="0" width="82" height="284" rx="10" fill="#F6F7F9" stroke="#9aa1ad" stroke-width="1.5" stroke-dasharray="5 4"/>
+<rect x="0" y="40" width="706" height="50" fill="#1F2A44" fill-opacity=".06"/>
+<text x="10" y="71" class="t-row">Retrieval</text>
+<rect x="0" y="130" width="706" height="50" fill="#1F2A44" fill-opacity=".06"/>
+<text x="10" y="161" class="t-row">Ranking</text>
+<rect x="0" y="220" width="706" height="50" fill="#1F2A44" fill-opacity=".06"/>
+<text x="10" y="251" class="t-row">Rerank</text>
+<text x="267" y="23" class="t-h" text-anchor="middle">Multi-layer domain</text>
+<text x="485" y="23" class="t-h" text-anchor="middle">Strategy A</text>
+<text x="575" y="23" class="t-h" text-anchor="middle">Strategy B</text>
+<text x="665" y="23" class="t-h" text-anchor="middle">Baseline</text>
+<line x1="152" y1="81" x2="152" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="152" y1="81" x2="242" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="152" y1="81" x2="384" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="242" y1="81" x2="152" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="242" y1="81" x2="242" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="242" y1="81" x2="384" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="384" y1="81" x2="152" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="384" y1="81" x2="242" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="384" y1="81" x2="384" y2="139" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="152" y1="171" x2="152" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="152" y1="171" x2="242" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="152" y1="171" x2="384" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="242" y1="171" x2="152" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="242" y1="171" x2="242" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="242" y1="171" x2="384" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="384" y1="171" x2="152" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="384" y1="171" x2="242" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<line x1="384" y1="171" x2="384" y2="229" stroke="#8A93A6" stroke-width="1" stroke-opacity=".7"/>
+<rect x="112" y="49" width="80" height="32" rx="6" fill="#185FA5"/><text x="152.0" y="70" class="t-c w" text-anchor="middle">Exp 1</text>
+<rect x="202" y="49" width="80" height="32" rx="6" fill="#185FA5"/><text x="242.0" y="70" class="t-c w" text-anchor="middle">Exp 2</text>
+<rect x="288" y="49" width="52" height="32" rx="6" fill="url(#hz)" stroke="#D3D8E0"/>
+<rect x="346" y="49" width="76" height="32" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.6"/><text x="384.0" y="70" class="t-c a" text-anchor="middle">Base</text>
+<rect x="112" y="139" width="80" height="32" rx="6" fill="#185FA5"/><text x="152.0" y="160" class="t-c w" text-anchor="middle">Exp 3</text>
+<rect x="202" y="139" width="80" height="32" rx="6" fill="#185FA5"/><text x="242.0" y="160" class="t-c w" text-anchor="middle">Exp 4</text>
+<rect x="288" y="139" width="52" height="32" rx="6" fill="url(#hz)" stroke="#D3D8E0"/>
+<rect x="346" y="139" width="76" height="32" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.6"/><text x="384.0" y="160" class="t-c a" text-anchor="middle">Base</text>
+<rect x="112" y="229" width="80" height="32" rx="6" fill="#185FA5"/><text x="152.0" y="250" class="t-c w" text-anchor="middle">Exp 5</text>
+<rect x="202" y="229" width="80" height="32" rx="6" fill="#185FA5"/><text x="242.0" y="250" class="t-c w" text-anchor="middle">Exp 6</text>
+<rect x="288" y="229" width="52" height="32" rx="6" fill="url(#hz)" stroke="#D3D8E0"/>
+<rect x="346" y="229" width="76" height="32" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.6"/><text x="384.0" y="250" class="t-c a" text-anchor="middle">Base</text>
+<rect x="454" y="49" width="62" height="32" rx="6" fill="#185FA5"/><text x="485.0" y="70" class="t-c w" text-anchor="middle">A</text>
+<line x1="485" y1="81" x2="485" y2="137" stroke="#6b7385" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="454" y="139" width="62" height="32" rx="6" fill="#185FA5"/><text x="485.0" y="160" class="t-c w" text-anchor="middle">A</text>
+<line x1="485" y1="171" x2="485" y2="227" stroke="#6b7385" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="454" y="229" width="62" height="32" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.6"/><text x="485.0" y="250" class="t-c a" text-anchor="middle">Base</text>
+<rect x="544" y="49" width="62" height="32" rx="6" fill="#185FA5"/><text x="575.0" y="70" class="t-c w" text-anchor="middle">B</text>
+<line x1="575" y1="81" x2="575" y2="137" stroke="#6b7385" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="544" y="139" width="62" height="32" rx="6" fill="#185FA5"/><text x="575.0" y="160" class="t-c w" text-anchor="middle">B</text>
+<line x1="575" y1="171" x2="575" y2="227" stroke="#6b7385" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="544" y="229" width="62" height="32" rx="6" fill="#185FA5"/><text x="575.0" y="250" class="t-c w" text-anchor="middle">B</text>
+<rect x="634" y="49" width="62" height="32" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.6"/><text x="665.0" y="70" class="t-c a" text-anchor="middle">Base</text>
+<line x1="665" y1="81" x2="665" y2="137" stroke="#6b7385" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="634" y="139" width="62" height="32" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.6"/><text x="665.0" y="160" class="t-c a" text-anchor="middle">Base</text>
+<line x1="665" y1="171" x2="665" y2="227" stroke="#6b7385" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="634" y="229" width="62" height="32" rx="6" fill="#fff" stroke="#8a8984" stroke-width="1.6"/><text x="665.0" y="250" class="t-c a" text-anchor="middle">Base</text>
+</svg>
+      <div class="xp-key"><span><b>Columns</b> = domains, exclusive</span><span><b>Rows</b> = layers</span><span class="lg"><i class="t"></i>exp <i class="c"></i>Base = control <i class="b"></i>no bucket</span></div>
+    </div>
+    <div class="xp2-r">
+      <div class="pt"><b><em>01</em>Domain · exclusive split</b><span>Hash user ID into one domain · strategy domains run a fixed path, compared with Baseline</span></div>
+      <div class="pt"><b><em>02</em>Layer · reuse traffic</b><span>Own hash seed per layer · exclusive within, free combination across</span></div>
+      <div class="pt"><b><em>03</em>Conditions at the layer</b><span>Match first, then hash · exp and control share one population</span></div>
+      <div class="pt"><b><em>04</em>Ramp up, no switching</b><span>Fixed bucket ranges · exp grows up from 0, control down from the top</span></div>
+    </div>
+  </div>
+  <div class="xp-ov"><b>Param override · low → high</b><span class="pl">default</span><i>→</i><span class="pl">Launch layer</span><i>→</i><span class="pl hi">Domain experiment</span><span class="nt">Change only the delta · the rest inherits the baseline</span></div>
+  <div class="tip" style="margin-top:12px"><span class="lbl">Remember</span>Orthogonal buckets ≠ independent effects: a new retrieval source changes what Ranking sees.</div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+<!-- Wrap-up -->
+<section class="slide">
+  <p class="eyebrow" style="background:#C2502A">Wrap-up</p>
+  <h2>Wrap-up <span class="sep">·</span> four layers, one loop</h2>
+  <div class="wu">
+    <div class="wu-l">
+      <p class="wu-cap">The map in one line each</p>
+      <div class="wu-r"><span class="wu-k" style="background:var(--on)">Online</span><p><b>Reads only, decides in milliseconds</b><span>Retrieval → Pre-ranking → Ranking → Rerank</span></p></div>
+      <div class="wu-r"><span class="wu-k" style="background:var(--off)">Offline</span><p><b>Builds data, features and models</b><span>warehouse · samples · training · embeddings</span></p></div>
+      <div class="wu-r"><span class="wu-k" style="background:var(--nl)">Nearline</span><p><b>Keeps them fresh</b><span>real-time features · session interest · online learning</span></p></div>
+      <div class="wu-r"><span class="wu-k" style="background:var(--st)">Storage</span><p><b>The contract between layers</b><span>one feature definition · versions switch together</span></p></div>
+      <div class="wu-r"><span class="wu-k" style="background:#B8325A">Evaluation</span><p><b>Experiments decide what ships</b><span>layered traffic · fixed buckets · AA first</span></p></div>
+    </div>
+    <div class="wu-m">
+      <div class="card wu-card">
+        <span class="tag">metrics</span><h3>What we read in an experiment</h3>
+        <dl>
+          <dt>North star</dt><dd>watch time · retention</dd>
+          <dt>Quality</dt><dd>completion · likes, shares · surveys</dd>
+          <dt>Guardrails</dt><dd>latency · negative feedback · diversity · creators</dd>
+          <dt>Long term</dt><dd>a holdout catches wins that fade</dd>
+        </dl>
+        <p class="xs muted" style="margin-top:10px">Ties back to the objective on slide 3</p>
+      </div>
+      <div class="wu-thx"><p class="t">Thanks</p><p class="q">Q&amp;A · discussion</p><p class="lic">© 2026 Frandy Yang · v1.1 · <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener">CC BY-NC 4.0</a><br>Free to share and adapt with credit · not for commercial use</p></div>
+    </div>
+  </div>
+  <div class="footer-tag">Frandy Yang · <a href="https://www.linkedin.com/in/frandy-xu-yang-4b5249124/" target="_blank" rel="noopener">linkedin.com/in/frandy-xu-yang-4b5249124</a> · v1.1</div>
+  <div class="slide-num"></div>
+</section>
+
+</div>
+</div>
+
+<div id="notes" aria-live="polite" hidden><div id="notes-body"></div></div>
+<div id="controls">
+  <button id="btn-prev" type="button" aria-label="Previous slide">←</button>
+  <button id="btn-next" type="button" aria-label="Next slide">→</button>
+  <button id="btn-notes" type="button" aria-pressed="false" hidden>Notes (N)</button>
+</div>
+
+<script>
+(function () {
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var stage = document.getElementById('stage');
+  var viewport = document.getElementById('viewport');
+  var notesBody = document.getElementById('notes-body');
+  var progress = document.getElementById('progress');
+  var btnNotes = document.getElementById('btn-notes');
+  var cur = 0;
+  var total = slides.length;
+
+  function isVisible(k) { return true; }
+  function visibleList() { var v = []; for (var k = 0; k < total; k++) if (isVisible(k)) v.push(k); return v; }
+  function renumber() {
+    var v = visibleList();
+    slides.forEach(function (s, i) {
+      var n = s.querySelector('.slide-num'); if (!n) return;
+      var p = v.indexOf(i);
+      n.textContent = p < 0 ? 'optional' : String(p + 1).padStart(2, '0') + ' / ' + String(v.length).padStart(2, '0');
+    });
+  }
+  function step(dir) {
+    var k = cur + dir;
+    while (k >= 0 && k < total && !isVisible(k)) k += dir;
+    if (k >= 0 && k < total) show(k);
+  }
+  renumber();
+
+  function fit() {
+    var w = viewport.clientWidth, h = viewport.clientHeight;
+    var pad = Math.min(32, w * 0.03);
+    var scale = Math.min((w - pad * 2) / 1280, (h - pad * 2) / 720);
+    stage.style.transform = 'translate(-50%, -50%) scale(' + Math.max(scale, 0.1) + ')';
+  }
+
+  function show(i, updateHash) {
+    cur = Math.max(0, Math.min(total - 1, i));
+    slides.forEach(function (s, k) { s.classList.toggle('active', k === cur); });
+    var aside = slides[cur].querySelector('aside.notes');
+    notesBody.innerHTML = aside ? aside.innerHTML : '<p>No notes for this slide.</p>';
+    var v = visibleList(); var p = v.indexOf(cur);
+    progress.style.width = ((p < 0 ? v.length : p + 1) / v.length * 100) + '%';
+    if (updateHash !== false) {
+      var h = '#s' + (cur + 1);
+      if (location.hash !== h) { try { history.replaceState(null, '', h); } catch (e) { location.hash = h; } }
+    }
+  }
+
+  function fromHash() {
+    var m = /^#s(\d+)$/.exec(location.hash || '');
+    return m ? parseInt(m[1], 10) - 1 : 0;
+  }
+
+  function toggleNotes() {
+    var on = document.body.classList.toggle('show-notes');
+    btnNotes.setAttribute('aria-pressed', on ? 'true' : 'false');
+    fit();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ') { e.preventDefault(); step(1); }
+    else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); step(-1); }
+    else if (k === 'Home') { show(0); }
+    else if (k === 'End') { var v = visibleList(); show(v[v.length - 1]); }
+    
+  });
+  document.getElementById('btn-prev').addEventListener('click', function () { step(-1); });
+  document.getElementById('btn-next').addEventListener('click', function () { step(1); });
+  btnNotes.addEventListener('click', toggleNotes);
+
+  var tx = null;
+  viewport.addEventListener('touchstart', function (e) { tx = e.touches[0].clientX; }, { passive: true });
+  viewport.addEventListener('touchend', function (e) {
+    if (tx === null) return;
+    var dx = e.changedTouches[0].clientX - tx;
+    if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+    tx = null;
+  });
+
+  window.addEventListener('resize', fit);
+  window.addEventListener('hashchange', function () { show(fromHash(), false); });
+  fit();
+  show(fromHash(), false);
+})();
+</script>
+</body>
+</html>

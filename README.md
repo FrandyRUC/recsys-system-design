@@ -4,7 +4,9 @@ An end-to-end architecture for a YouTube-style "Up Next" recommender, walked thr
 
 ![Cover](images/cover.png)
 
-**[Download the slides (PDF, 16 pages)](Video_Recommendation_System_Design_v1.1.pdf)**
+**[▶ View the slides in your browser](https://frandyruc.github.io/recsys-system-design/)** · **[Download PDF (16 pages)](Video_Recommendation_System_Design_v1.1.pdf)**
+
+Use ← → or the arrow buttons to move between slides; click any box on the agenda or architecture map to jump to that section.
 
 ## What this is
 

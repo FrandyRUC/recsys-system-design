@@ -81,6 +81,8 @@ It's useful if you're:
 **Frandy Yang**, Senior Machine Learning Engineer, recommendation and ranking systems
 [LinkedIn](https://www.linkedin.com/in/frandy-xu-yang-4b5249124/)
 
+For consulting, team training or collaboration on machine learning, recommendation systems and AI applications, reach me at [frandyyang157@gmail.com](mailto:frandyyang157@gmail.com).
+
 Feedback and corrections are welcome. Open an issue or reach out on LinkedIn.
 
 ## License

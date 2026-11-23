@@ -4,7 +4,7 @@ An end-to-end architecture for a YouTube-style "Up Next" recommender, walked thr
 
 ![Cover](images/cover.png)
 
-**[Download the slides (PDF, 16 pages)](Video_Recommendation_System_Design_v1.0.pdf)**
+**[Download the slides (PDF, 16 pages)](Video_Recommendation_System_Design_v1.1.pdf)**
 
 ## What this is
 
@@ -71,6 +71,7 @@ It's useful if you're:
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.1 | Nov 2026 | Removed case figures and company names from slides 7 and 14 |
 | v1.0 | Nov 2026 | First public version |
 
 ## Author
